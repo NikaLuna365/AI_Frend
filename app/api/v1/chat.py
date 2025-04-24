@@ -1,57 +1,65 @@
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
-from typing import List
+# app/api/v1/chat.py
+
+from fastapi import APIRouter, Depends, HTTPException, status
+
 from app.core.llm.client import LLMClient, Message
-from app.core.calendar.base import get_calendar_provider
-from app.core.achievements.service import AchievementsService
+from app.core.calendar import get_calendar_provider
+from app.core.achievements import AchievementsService    # ← импорт из __init__.py
 from app.core.users.service import UsersService
-from datetime import datetime
+from app.db.base import get_db_session
+from app.core.calendar.schemas import EventOut
+from app.core.achievements.schemas import AchievementOut
 
-router = APIRouter()
+router = APIRouter(prefix="/v1/chat", tags=["Chat"])
 
-class ChatRequest(BaseModel):
-    user_id: str
-    message_text: str
+# ----------------------------- схемы -----------------------------
 
-class EventOut(BaseModel):
-    title: str
-    start: datetime
-    end: datetime | None = None
 
-class ChatResponse(BaseModel):
-    reply_text: str
-    detected_events: List[EventOut]
-    achievements: List[str]
+class ChatRequest(Message):  # наследуем поля role, content
+    """Запрос: user_id и текст сообщения."""
+    user_id: int
 
-@router.post('/', response_model=ChatResponse)
-def chat(body: ChatRequest):
-    svc_users = UsersService()
-    svc_llm = LLMClient()
-    calendar = get_calendar_provider()
-    svc_ach = AchievementsService()
 
-    svc_users.save_message(body.user_id, Message(role='user', content=body.message_text))
+class ChatResponse(Message):  # наследуем поля role, content
+    """Ответ бота + опциональные события и достижения."""
+    detected_events: list[EventOut] | None = None
+    achievements: list[AchievementOut] | None = None
 
-    try:
-        context = svc_users.get_recent_messages(body.user_id)
-        reply = svc_llm.generate(body.message_text, context)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f'LLM error: {e}')
 
-    events = []
-    try:
-        events = svc_llm.extract_events(reply)
-        for ev in events:
-            calendar.add_event(body.user_id, ev.title, ev.start, ev.end)
-    except:
-        events = []
+# ----------------------------- эндпоинт ---------------------------
 
-    medals = svc_ach.check_and_award(body.user_id, events, reply)
 
-    svc_users.save_message(body.user_id, Message(role='assistant', content=reply))
+@router.post("/", response_model=ChatResponse, status_code=status.HTTP_200_OK)
+def chat_endpoint(
+    req: ChatRequest,
+    db=Depends(get_db_session),
+) -> ChatResponse:
+    """Основной чат-эндпоинт: принимает текст, отдаёт ответ Gemini."""
+    users_svc = UsersService(db)
+    ach_svc = AchievementsService(db)
+
+    # Шаг 1 — сохраняем входящее сообщение
+    users_svc.save_message(req.user_id, Message(role="user", content=req.content))
+
+    # Шаг 2 — генерируем ответ LLM
+    llm = LLMClient()
+    reply_text: str = llm.generate(req.content, context=users_svc.get_context(req.user_id))
+
+    # Шаг 3 — вытаскиваем события из ответа
+    events: list[EventOut] = llm.extract_events(reply_text)
+    cal = get_calendar_provider()
+    for ev in events:
+        cal.add_event(req.user_id, ev.title, ev.start_dt, ev.end_dt, ev.metadata)
+
+    # Шаг 4 — проверяем достижения
+    achievements: list[AchievementOut] = ach_svc.check_and_grant(req.user_id, events)
+
+    # Шаг 5 — сохраняем ответ бота
+    users_svc.save_message(req.user_id, Message(role="assistant", content=reply_text))
 
     return ChatResponse(
-        reply_text=reply,
-        detected_events=events,
-        achievements=[m.code for m in medals]
+        role="assistant",
+        content=reply_text,
+        detected_events=events or None,
+        achievements=achievements or None,
     )
