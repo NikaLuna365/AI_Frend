@@ -2,15 +2,9 @@
 """
 SQLAlchemy-модели для подсистемы «Achievements».
 
-Содержит две таблицы:
-
-    1. AchievementRule  ― справочник правил (код, заголовок, иконка, описание),
-                          по сути «каталог достижений».
-    2. Achievement      ― конкретная медаль, которую получил пользователь
-                          (user_id + code правила).
-
-Эти модели используются сервисом AchievementsService, API-эндпоинтом /v1/achievements
-и Alembic-миграциями.
+Таблицы:
+    achievement_rules  – справочник возможных достижений;
+    achievements       – конкретные медали пользователей.
 """
 
 from __future__ import annotations
@@ -25,74 +19,56 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy.orm import (
-    DeclarativeMeta,
-    relationship,
-)
+from sqlalchemy.orm import DeclarativeMeta, relationship
 
-from app.db.base import Base  # DeclarativeBase из единой точки
+from app.db.base import Base
 
 
-class AchievementRule(Base):  # type: ignore[misc]  # mypy из-за DeclarativeMeta
-    """
-    Каталог правил достижений (одна запись = один возможный бейдж).
-    """
+class AchievementRule(Base):  # type: ignore[misc]
+    """Каталог правил достижений."""
 
-    __tablename__: str = "achievement_rules"
+    __tablename__ = "achievement_rules"
 
-    # --- колонки -------------------------------------------------------------
-
-    code: str = Column(String, primary_key=True, doc="Уникальный код достижения")
-    title: str = Column(String, nullable=False, doc="Человекочитаемый заголовок")
-    icon_url: str = Column(String, nullable=False, doc="URL SVG/PNG иконки")
-    description: str | None = Column(
-        Text, nullable=True, doc="Описание правила (не обязательно)"
-    )
-
-    # --- repr / str ----------------------------------------------------------
+    code = Column(String, primary_key=True, doc="Уникальный код бейджа")
+    title = Column(String, nullable=False, doc="Заголовок бейджа")
+    icon_url = Column(String, nullable=False, doc="URL иконки (PNG/SVG)")
+    description = Column(Text, nullable=True, doc="Описание условия получения")
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<AchievementRule code={self.code!r} title={self.title!r}>"
 
 
 class Achievement(Base):  # type: ignore[misc]
-    """
-    Конкретная медаль, присуждённая пользователю.
-    """
+    """Конкретная медаль, присуждённая пользователю."""
 
-    __tablename__: str = "achievements"
+    __tablename__ = "achievements"
 
-    # --- колонки -------------------------------------------------------------
-
-    id: int = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    user_id: int = Column(
+    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
+    user_id = Column(
         Integer,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        doc="FK на users.id",
+        doc="FK → users.id",
     )
-    code: str = Column(
+    code = Column(
         String,
         ForeignKey("achievement_rules.code", ondelete="CASCADE"),
         nullable=False,
         index=True,
-        doc="FK на achievement_rules.code",
+        doc="FK → achievement_rules.code",
     )
-    title: str = Column(String, nullable=False, doc="Копия заголовка на момент выдачи")
-    icon_url: str = Column(String, nullable=False, doc="Копия URL иконки на момент выдачи")
-    created_at: datetime = Column(
+    title = Column(String, nullable=False, doc="Копия title на момент выдачи")
+    icon_url = Column(String, nullable=False, doc="Копия icon_url на момент выдачи")
+    created_at = Column(
         DateTime,
         default=datetime.utcnow,
         nullable=False,
-        doc="Когда медаль была выдана",
+        doc="Время выдачи",
     )
 
-    # --- связи ---------------------------------------------------------------
-
-    rule: "AchievementRule" = relationship("AchievementRule", lazy="joined")
-
-    # --- repr / str ----------------------------------------------------------
+    # связь с правилом (без статической аннотации во избежание MappedAnnotationError)
+    rule = relationship("AchievementRule", lazy="joined")
 
     def __repr__(self) -> str:  # pragma: no cover
         return (
