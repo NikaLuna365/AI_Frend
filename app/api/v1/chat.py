@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from app.core.calendar import get_calendar_provider
 from app.core.llm.client import LLMClient, Message
 from app.core.calendar import get_calendar_provider
 from app.core.achievements import AchievementsService    # ← импорт из __init__.py
