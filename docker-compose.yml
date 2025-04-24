@@ -1,12 +1,76 @@
 services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ai_user
+      POSTGRES_PASSWORD: StrongPass
+      POSTGRES_DB: ai_drug
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ai_user -d ai_drug"]
+      interval: 10s
+      retries: 5
+    restart: always
+
+  redis:
+    image: redis:7
+    command: redis-server --save 60 1
+    volumes:
+      - redis_data:/data
+    restart: always
+
   web:
-    ...
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: always
+
   celery:
-    ...
-  celery-beat:
-    build: .
-    command: celery -A app.workers.tasks beat --loglevel=info
-    env_file: .env
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A app.workers.tasks worker --loglevel=info
+    volumes:
+      - .:/app
+    env_file:
+      - .env
     depends_on:
       - redis
       - db
+    restart: always
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: celery -A app.workers.tasks beat --loglevel=info
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - db
+    restart: always
+
+volumes:
+  db_data:
+  redis_data:
