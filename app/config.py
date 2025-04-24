@@ -7,16 +7,18 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = Field(..., env="DATABASE_URL")
 
-    # Google API
+    # Google APIs
     GOOGLE_PROJECT: str = Field(..., env="GOOGLE_PROJECT")
     GOOGLE_CALENDAR_CREDENTIALS_JSON: str = Field(..., env="GOOGLE_CALENDAR_CREDENTIALS_JSON")
 
-    # Gemini
+    # Gemini LLM
     GEMINI_API_KEY: str = Field(..., env="GEMINI_API_KEY")
     LLM_PROVIDER: str = Field("gemini", env="LLM_PROVIDER")
+
+    # Calendar provider
     CALENDAR_PROVIDER: str = Field("google", env="CALENDAR_PROVIDER")
 
-    # Speech
+    # Speech-to-Text / TTS
     SPEECH_LANGUAGE: str = Field("ru-RU", env="SPEECH_LANGUAGE")
     TTS_VOICE: str = Field("ru-RU-Wavenet-D", env="TTS_VOICE")
 
