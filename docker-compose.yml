@@ -1,0 +1,12 @@
+services:
+  web:
+    ...
+  celery:
+    ...
+  celery-beat:
+    build: .
+    command: celery -A app.workers.tasks beat --loglevel=info
+    env_file: .env
+    depends_on:
+      - redis
+      - db
