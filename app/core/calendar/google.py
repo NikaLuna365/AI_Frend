@@ -1,41 +1,43 @@
-from datetime import datetime, timedelta
+# app/core/calendar/google.py
+
+"""
+Реализация CalendarProvider через Google Calendar API.
+"""
+
+from __future__ import annotations
+import json, os
 from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 from app.config import settings
-from .base import CalendarProvider
-from .models import EventOut
 
-class GoogleCalendarProvider(CalendarProvider):
-    def __init__(self):
-        creds_info = settings.GOOGLE_CALENDAR_CREDENTIALS_JSON
-        creds = Credentials.from_service_account_info(creds_info)
-        self.service = build('calendar', 'v3', credentials=creds)
+class GoogleCalendarProvider:
+    """Работает с реальным Google Calendar."""
 
-    def add_event(self, user_id: str, title: str, start_dt: datetime, end_dt: datetime | None = None):
-        event = {
-            'summary': title,
-            'start': {'dateTime': start_dt.isoformat()},
-            'end': {'dateTime': (end_dt or start_dt + timedelta(hours=1)).isoformat()},
+    def __init__(self) -> None:
+        # читаем JSON-файл сервакка
+        creds_path = settings.GOOGLE_CALENDAR_CREDENTIALS_JSON
+        if not os.path.exists(creds_path):
+            raise FileNotFoundError(f"Service account JSON not found: {creds_path}")
+        self.creds = Credentials.from_service_account_file(creds_path)
+        self.service = build("calendar", "v3", credentials=self.creds)
+
+    def add_event(self, user_id: str, title: str, start_dt: Any,
+                  end_dt: Any = None, metadata: dict[str, Any] | None = None) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "summary": title,
+            "start": {"dateTime": start_dt.isoformat()},
+            "end": {"dateTime": (end_dt or start_dt).isoformat()},
         }
-        return self.service.events().insert(calendarId='primary', body=event).execute()
+        if metadata:
+            body.update(metadata)
+        return self.service.events().insert(calendarId="primary", body=body).execute()
 
-    def list_events(self, user_id: str, from_dt: datetime, to_dt: datetime) -> list[EventOut]:
-        response = self.service.events().list(
-            calendarId='primary',
+    def list_events(self, user_id: str, from_dt: Any, to_dt: Any) -> list[dict[str, Any]]:
+        resp = self.service.events().list(
+            calendarId="primary",
             timeMin=from_dt.isoformat(),
             timeMax=to_dt.isoformat(),
-            singleEvents=True
+            singleEvents=True,
+            orderBy="startTime",
         ).execute()
-        items = response.get('items', [])
-        events: list[EventOut] = []
-        for item in items:
-            start_raw = item['start'].get('dateTime') or item['start'].get('date')
-            end_raw = item['end'].get('dateTime') or item['end'].get('date')
-            start_dt = datetime.fromisoformat(start_raw)
-            end_dt = datetime.fromisoformat(end_raw) if end_raw else None
-            events.append(EventOut(
-                title=item.get('summary', ''),
-                start=start_dt,
-                end=end_dt
-            ))
-        return events
+        return resp.get("items", [])
