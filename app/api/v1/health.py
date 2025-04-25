@@ -1,39 +1,53 @@
-# app/api/v1/health.py
 from __future__ import annotations
+
+import logging
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import text
-import redis
+from sqlalchemy.exc import SQLAlchemyError
+from redis import Redis
+from redis.exceptions import RedisError
 
 from app.db.base import engine
 from app.config import settings
-from app.core.calendar.base import get_calendar_provider
+from app.core.calendar import get_calendar_provider
 
-router = APIRouter(tags=["Health"])
+router = APIRouter(tags=["infra"])
+log = logging.getLogger(__name__)
 
 
 @router.get("/healthz")
 def healthz():
+    out: dict[str, str] = {}
+
     # DB
     try:
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"DB: {exc!s}")
+        out["db"] = "ok"
+    except SQLAlchemyError as exc:
+        log.exception("DB health check failed")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="db error") from exc
 
     # Redis
     try:
-        redis.Redis.from_url(settings.REDIS_URL).ping()
-    except Exception as exc:
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Redis: {exc!s}")
+        r = Redis.from_url(settings.CELERY_BROKER_URL, socket_connect_timeout=2)
+        assert r.ping()
+        out["cache"] = "ok"
+    except (RedisError, AssertionError) as exc:
+        log.exception("Redis health check failed")
+        raise HTTPException(status_code=500, detail="cache error") from exc
 
-    # Calendar (если реальный)
-    if settings.CALENDAR_PROVIDER != "noop":
+    # Calendar (only if не noop)
+    prov = get_calendar_provider()
+    if prov.__class__.__name__ != "NoopCalendarProvider":  # pragma: no cover
         try:
-            provider = get_calendar_provider()
-            if hasattr(provider, "service"):
-                provider.service.colors().get(calendarId="primary").execute()
-        except Exception as exc:
-            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Calendar: {exc!s}")
+            prov.list_events("dummy")  # лёгкий запрос
+            out["calendar"] = "ok"
+        except Exception as exc:  # noqa: BLE001
+            log.exception("Calendar health check failed")
+            raise HTTPException(status_code=500, detail="calendar error") from exc
+    else:
+        out["calendar"] = "noop"
 
-    return {"status": "ok"}
+    return out
