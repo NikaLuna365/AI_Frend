@@ -1,53 +1,36 @@
 # app/core/llm/client.py
-"""
-LLMClient — обёртка над Google Gemini (Generative AI) + тестовый класс Event.
-"""
 
 from __future__ import annotations
 
 import os
 from datetime import datetime
-from typing import List, Any
+from typing import List
 
 import dateparser.search
 import google.generativeai as genai
 from pydantic import BaseModel
 
-# --------------------------------------------------------------------------- #
-# Pydantic model для сообщений
-# --------------------------------------------------------------------------- #
 
 class Message(BaseModel):
     role: str
     content: str
 
 
-# --------------------------------------------------------------------------- #
-# Тестовый класс Event
-# --------------------------------------------------------------------------- #
-
 class Event:
     """
-    Объект события, который используют тесты для моков и перехода
-    от LLM к календарю.
+    Тестовый объект-событие, используемый и ожидаемый тестами.
     """
     def __init__(self, title: str, start: datetime):
         self.title = title
-        # Тесты ожидают атрибут .start
-        self.start = start
-        # Наш код использует .start_dt и .end_dt
-        self.start_dt = start
+        self.start = start               #тесты читают .start
+        self.start_dt = start            #наш код читает .start_dt
         self.end_dt = None
         self.metadata = None
 
 
-# --------------------------------------------------------------------------- #
-# Клиент
-# --------------------------------------------------------------------------- #
-
 class LLMClient:
     """
-    Клиент для общения с LLM (Google Gemini).
+    Клиент для общения с Google Gemini (Generative AI).
     """
 
     def __init__(self) -> None:
@@ -73,9 +56,7 @@ class LLMClient:
         Простейший парсер дат → список Event.
         """
         found = dateparser.search.search_dates(
-            text,
-            languages=["ru", "en"],
-            settings={"PREFER_DATES_FROM": "future"},
+            text, languages=["ru", "en"], settings={"PREFER_DATES_FROM": "future"}
         )
         events: list[Event] = []
         if found:
