@@ -15,27 +15,31 @@ services:
 
   redis:
     image: redis:7
-    command: redis-server --save 60 1
+    command: ["redis-server", "--save", "60", "1"]
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 3
     restart: always
 
   web:
     build:
       context: .
       dockerfile: Dockerfile
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     volumes:
       - .:/app
     ports:
       - "8000:8000"
     env_file:
-      - .env
+      - .env.${ENVIRONMENT}
     depends_on:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 30s
@@ -47,28 +51,28 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: celery -A app.workers.tasks worker --loglevel=info
+    command: ["celery", "-A", "app.workers.tasks:celery_app", "worker", "--loglevel=info"]
     volumes:
       - .:/app
     env_file:
-      - .env
+      - .env.${ENVIRONMENT}
     depends_on:
-      - redis
       - db
+      - redis
     restart: always
 
   celery-beat:
     build:
       context: .
       dockerfile: Dockerfile
-    command: celery -A app.workers.tasks beat --loglevel=info
+    command: ["celery", "-A", "app.workers.tasks:celery_app", "beat", "--loglevel=info"]
     volumes:
       - .:/app
     env_file:
-      - .env
+      - .env.${ENVIRONMENT}
     depends_on:
-      - redis
       - db
+      - redis
     restart: always
 
 volumes:
