@@ -1,6 +1,6 @@
 fastapi
 uvicorn[standard]
-google-generativeai
+google-generativeai==0.4.1
 google-cloud-speech
 google-cloud-texttospeech
 dateparser
