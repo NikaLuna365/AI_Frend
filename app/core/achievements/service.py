@@ -1,90 +1,84 @@
-# app/core/achievements/service.py
 from __future__ import annotations
 
+import logging
 from datetime import datetime
-from typing import List
+from typing import Iterable, List
 
+from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
 
-from app.db.base import get_db_session
-from app.core.achievements.models import Achievement, AchievementRule
-from app.core.achievements.schemas import AchievementOut
-from app.core.llm.schemas import Event
+from app.db.base import Base, get_db_session
+from sqlalchemy import Column, Integer, String, DateTime  # noqa: E402
+
+log = logging.getLogger(__name__)
+
+
+class AchievementRule(Base):  # type: ignore[misc]
+    __tablename__ = "achievement_rules"
+    code = Column(String, primary_key=True)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=False)
+    icon_url = Column(String, nullable=True)
+
+
+class Achievement(Base):  # type: ignore[misc]
+    __tablename__ = "achievements"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String, nullable=False)
+    code = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AchievementOut(dict):  # simple serialisable
+    pass
 
 
 class AchievementsService:
     def __init__(self, db: Session | None = None) -> None:
-        # если снаружи не передали сессию, — берём из общего пула
-        self.db: Session = db or get_db_session()
+        self.db = db or next(get_db_session())
 
+    # --------------------------------------------------------------
     def list_user_achievements(self, user_id: str) -> List[AchievementOut]:
-        """
-        Возвращает все уже полученные пользователем ачивки,
-        отсортированные по дате получения.
-        """
         rows = (
-            self.db.query(Achievement)
+            self.db.query(Achievement, AchievementRule)
+            .join(AchievementRule, Achievement.code == AchievementRule.code)
             .filter(Achievement.user_id == user_id)
             .order_by(Achievement.created_at)
             .all()
         )
-        # конвертируем ORM-модели в Pydantic-схемы
         return [
-            AchievementOut.model_validate(r.__dict__)
-            for r in rows
-        ]
-
-    # синоним метода
-    get_user_achievements = list_user_achievements
-
-    def check_and_award(
-        self,
-        user_id: str,
-        events: list[Event],
-        reply_text: str
-    ) -> List[AchievementOut]:
-        """
-        Пробегаем по всем правилам ачивок (AchievementRule),
-        проверяем, не удовлетворяет ли своё условие текущее сообщение
-        (reply_text) или события events, и если да — выдаём новую ачивку.
-        Возвращаем список только что выданных ачивок.
-        """
-        awarded: List[AchievementOut] = []
-        # Загружаем все правила
-        rules = self.db.query(AchievementRule).all()
-
-        for rule in rules:
-            # здесь должна быть ваша логика проверки условия:
-            # пример: если код правила встречается в тексте ответа:
-            if rule.code not in reply_text:
-                continue
-
-            # проверим, нет ли уже такой ачивки у пользователя
-            exists = (
-                self.db.query(Achievement)
-                .filter(
-                    Achievement.user_id == user_id,
-                    Achievement.code == rule.code
-                )
-                .first()
-            )
-            if exists:
-                continue
-
-            # создаём новую запись
-            new_ach = Achievement(
-                user_id=user_id,
+            AchievementOut(
                 code=rule.code,
                 title=rule.title,
                 icon_url=rule.icon_url,
-                created_at=datetime.utcnow(),
+                description=rule.description,
+                obtained_at=ach.created_at.isoformat(),
             )
-            self.db.add(new_ach)
+            for ach, rule in rows
+        ]
+
+    # --------------------------------------------------------------
+    def _rules(self) -> Iterable[AchievementRule]:
+        return self.db.scalars(select(AchievementRule)).all()
+
+    def _already(self, user_id: str) -> set[str]:
+        stmt = select(Achievement.code).where(Achievement.user_id == user_id)
+        return {row[0] for row in self.db.execute(stmt)}
+
+    def check_and_award(self, user_id: str, events, reply_text: str) -> List[str]:
+        unlocked: List[str] = []
+        owned = self._already(user_id)
+
+        # rule example: первая встреча → “first_event”
+        if events and "first_event" not in owned:
+            self.db.add(Achievement(user_id=user_id, code="first_event"))
+            unlocked.append("first_event")
+
+        if "спасибо" in reply_text.lower() and "polite" not in owned:
+            self.db.add(Achievement(user_id=user_id, code="polite"))
+            unlocked.append("polite")
+
+        if unlocked:
             self.db.commit()
-            self.db.refresh(new_ach)
-
-            awarded.append(
-                AchievementOut.model_validate(new_ach.__dict__)
-            )
-
-        return awarded
+            log.info("[Ach] user=%s unlocked=%s", user_id, ",".join(unlocked))
+        return unlocked
