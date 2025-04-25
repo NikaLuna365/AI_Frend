@@ -6,16 +6,16 @@ from typing import List
 
 from sqlalchemy.orm import Session
 
-from app.db.base import SessionLocal
+from app.db.base import SessionLocal, Base, engine
 from .models import Achievement
-from .schemas import AchievementOut
+from .schemas import AchievementOut, Event
 
 
 class AchievementsService:
     def __init__(self, db: Session | None = None) -> None:
         self.db = db or SessionLocal()
 
-    # --------------------------------------------------- #
+    # ------------------------------------------------------------------ #
     def list_user_achievements(self, user_id: str) -> List[AchievementOut]:
         rows = (
             self.db.query(Achievement)
@@ -25,5 +25,14 @@ class AchievementsService:
         )
         return [AchievementOut.model_validate(r.__dict__) for r in rows]
 
-    # старый метод для обратной совместимости
-    get_user_achievements = list_user_achievements
+    get_user_achievements = list_user_achievements  # b/c
+
+    # ------------------------------------------------------------------ #
+    def check_and_award(
+        self,
+        user_id: str,
+        events: List[Event],
+        reply_text: str,
+    ) -> List[AchievementOut]:
+        """Заглушка: в MVP просто ничего не выдаём."""
+        return []
