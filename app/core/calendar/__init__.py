@@ -1,30 +1,36 @@
-# app/core/calendar/__init__.py
 """
-Calendar package.
+core.calendar
+~~~~~~~~~~~~~
+Единая точка входа для работы с календарём.
 
-Задача пакета ― предоставить абстрактный интерфейс CalendarProvider и конкретные
-реализации (Google, Outlook, iCal…), а также фабричную функцию
-`get_calendar_provider`, чтобы верхние слои приложения могли получить
-нужный провайдер, не зная деталей импорта.
+Интерфейс BaseCalendarProvider минимален – нужны только
+list_events() и add_event(). Реальные провайдеры (Google)
+и noop-заглушка регистрируются в словаре.
 
-Структура пакета:
-    base.py         ― интерфейс CalendarProvider и фабрика get_calendar_provider
-    google.py       ― реализация для Google Calendar API
-    outlook.py      ― (плейсхолдер для будущей реализации)
-    models.py       ― Pydantic-схемы событий
-    __init__.py     ― экспорт публичных объектов пакета
+Использование:
+    from app.core.calendar import get_calendar_provider
 
-Экспортируем здесь только то, что действительно нужно снаружи.
+    calendar = get_calendar_provider()
+    calendar.add_event(…)
 """
-
 from __future__ import annotations
 
-# Экспортируем фабрику, чтобы можно было писать
-# `from app.core.calendar import get_calendar_provider`
-from .base import get_calendar_provider  # noqa: F401
+from typing import Dict, Type
 
-# При желании можно экспортировать и интерфейс, и схемы
-# from .base import CalendarProvider           # noqa: F401
-# from .models import EventOut, EventIn        # noqa: F401
+from app.config import settings
+from .base import BaseCalendarProvider
+from .providers.noop import NoopCalendarProvider
+from .providers.google import GoogleCalendarProvider
 
-__all__: list[str] = ["get_calendar_provider"]
+_PROVIDER_REGISTRY: Dict[str, Type[BaseCalendarProvider]] = {
+    "noop": NoopCalendarProvider,
+    "google": GoogleCalendarProvider,
+}
+
+
+def get_calendar_provider() -> BaseCalendarProvider:
+    name = settings.CALENDAR_PROVIDER.lower()
+    try:
+        return _PROVIDER_REGISTRY[name]()  # type: ignore[call-arg]
+    except KeyError as exc:  # pragma: no cover
+        raise RuntimeError(f"Unknown calendar provider: {name}") from exc
