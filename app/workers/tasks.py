@@ -1,22 +1,28 @@
 # app/workers/tasks.py
+
 from celery import Celery
 from datetime import datetime, timedelta
+import os
 
 from app.config import settings
 from app.core.calendar.base import get_calendar_provider
 from app.core.users.service import UsersService
-from app.db.base import SessionLocal  # если нужно напрямую
 from app.core.users.models import User
 from app.core.llm.client import Message
 
-# Инициализация Celery в атрибуте `app`
-app = Celery(
-    "worker",
+# Инициализация Celery в переменной, которую тесты ждут под именем celery_app
+celery_app = Celery(
+    "tasks",
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
 )
 
-@app.task(name="tasks.send_due_reminders")
+# В тестовом окружении (ENVIRONMENT=test) выполняем все задачи сразу
+if os.getenv("ENVIRONMENT") == "test":
+    celery_app.conf.task_always_eager = True
+    celery_app.conf.task_eager_propagates = True
+
+@celery_app.task(name="tasks.send_due_reminders")
 def send_due_reminders():
     """
     Каждые 5 минут проверяет события у всех пользователей
