@@ -1,27 +1,13 @@
+"""
+❗️ Back-compat shim для старых импортов.
+
+Раньше get_calendar_provider находился здесь, теперь он живёт в
+app.core.calendar.__init__.py.  Пока тесты и часть кода не обновили импорты,
+оставляем тонкий прокси.
+"""
+
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
-from datetime import datetime
-from typing import Iterable, List
+from app.core.calendar import get_calendar_provider, BaseCalendarProvider  # noqa: F401
 
-from pydantic import BaseModel
-
-
-class EventOut(BaseModel):
-    title: str
-    start: datetime
-    end: datetime | None = None
-
-
-class BaseCalendarProvider(ABC):
-    @abstractmethod
-    def add_event(self, user_id: str, title: str, start: datetime, end: datetime | None = None) -> None: ...
-
-    @abstractmethod
-    def list_events(
-        self, user_id: str, from_dt: datetime | None = None, to_dt: datetime | None = None
-    ) -> List[EventOut]: ...
-
-    # ── helper: возвращает все события пользователя ───────
-    def all_events(self, user_id: str) -> Iterable[EventOut]:
-        return self.list_events(user_id, None, None)
+__all__: list[str] = ["get_calendar_provider", "BaseCalendarProvider"]
