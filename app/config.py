@@ -1,46 +1,53 @@
 # app/config.py
+from __future__ import annotations
 
-from pydantic_settings import BaseSettings
-from pydantic import Field
+import os
+from pathlib import Path
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """
-    Application settings loaded from environment variables.
-    """
+    # глобальное
+    ENVIRONMENT: str = "dev"                 # dev / prod / test
 
-    # Application
-    APP_VERSION: str = Field("0.1.0", description="Application version")
-    ENVIRONMENT: str = Field("development", description="Environment (development, production, etc.)")
+    # внешние сервисы
+    DATABASE_URL: str = "sqlite:///:memory:"
+    REDIS_URL: str = "redis://redis:6379/0"
 
-    # Database
-    DATABASE_URL: str = Field(..., description="PostgreSQL connection URL, e.g. postgresql://user:pass@host:port/dbname")
+    GEMINI_API_KEY: str | None = None
+    GOOGLE_CREDENTIALS_JSON: str | None = None
 
-    # Google Calendar
-    GOOGLE_PROJECT: str = Field(..., description="Google Cloud project ID")
-    GOOGLE_CALENDAR_CREDENTIALS_JSON: str = Field(
-        ..., description="Path to service account JSON file for Google Calendar API"
-    )
+    # провайдеры
+    LLM_PROVIDER: str = "stub"               # gemini / stub
+    CALENDAR_PROVIDER: str = "noop"          # google / noop
 
-    # Gemini LLM
-    GEMINI_API_KEY: str = Field(..., description="API key for Google Gemini")
-    LLM_PROVIDER: str = Field("gemini", description="LLM provider to use (e.g. 'gemini')")
+    # celery
+    CELERY_BROKER_URL: str | None = None
+    CELERY_RESULT_BACKEND: str | None = None
 
-    # Calendar provider
-    CALENDAR_PROVIDER: str = Field("google", description="Calendar provider to use (e.g. 'google')")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
-    # Speech-to-Text / Text-to-Speech
-    SPEECH_LANGUAGE: str = Field("ru-RU", description="Language code for speech recognition")
-    TTS_VOICE: str = Field("ru-RU-Wavenet-D", description="Voice name for text-to-speech synthesis")
-
-    # Celery configuration
-    CELERY_BROKER_URL: str = Field(..., description="URL of Celery broker (e.g. redis://redis:6379/0)")
-    CELERY_RESULT_BACKEND: str = Field(..., description="URL of Celery result backend (e.g. redis://redis:6379/0)")
-
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    @property
+    def is_test(self) -> bool:       # удобный флаг
+        return self.ENVIRONMENT == "test"
 
 
-# Instantiate the settings object for import across the application
-settings = Settings()
+def _env_specific_path() -> Path | None:
+    env_name = os.getenv("ENVIRONMENT")
+    if env_name and Path(f".env.{env_name}").is_file():
+        return Path(f".env.{env_name}")
+    return None
+
+
+@lru_cache
+def get_settings() -> Settings:
+    # если задано .env.<env>, подгружаем поверх
+    extra = _env_specific_path()
+    if extra:
+        os.environ["Pydantic_Extra_Env_File"] = str(extra)
+    return Settings()  # type: ignore[arg-type]
+
+
+settings = get_settings()
