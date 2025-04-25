@@ -1,61 +1,29 @@
 # app/core/achievements/service.py
-
-"""
-Сервис, отвечающий за выдачу и хранение достижений (медалей).
-"""
-
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Iterable
+from typing import List
+
+from sqlalchemy.orm import Session
 
 from app.db.base import SessionLocal
-from app.core.achievements.models import Achievement
-from app.core.achievements.schemas import AchievementOut
+from .models import Achievement
+from .schemas import AchievementOut
 
 
 class AchievementsService:
-    """Бизнес-логика работы с медалями."""
+    def __init__(self, db: Session | None = None) -> None:
+        self.db = db or SessionLocal()
 
-    def __init__(self, db_session: SessionLocal | None = None) -> None:
-        self.db = db_session or SessionLocal()
-
-    # ----------------- публичные методы -----------------
-
-    def get_user_achievements(self, user_id: int) -> list[AchievementOut]:
-        """Вернуть все достижения пользователя."""
-        achievements: Iterable[Achievement] = (
-            self.db.query(Achievement).filter(Achievement.user_id == user_id).all()
-        )
-        return [AchievementOut.model_validate(a) for a in achievements]
-
-    def grant_achievement(
-        self,
-        user_id: int,
-        code: str,
-        title: str,
-        icon_url: str | None = None,
-    ) -> AchievementOut:
-        """Создать (или вернуть существующее) достижение для пользователя."""
-        achievement: Achievement | None = (
+    # --------------------------------------------------- #
+    def list_user_achievements(self, user_id: str) -> List[AchievementOut]:
+        rows = (
             self.db.query(Achievement)
-            .filter(
-                Achievement.user_id == user_id,
-                Achievement.code == code,
-            )
-            .one_or_none()
+            .filter(Achievement.user_id == user_id)
+            .order_by(Achievement.created_at)
+            .all()
         )
+        return [AchievementOut.model_validate(r.__dict__) for r in rows]
 
-        if achievement is None:
-            achievement = Achievement(
-                user_id=user_id,
-                code=code,
-                title=title,
-                icon_url=icon_url,
-                created_at=datetime.utcnow(),
-            )
-            self.db.add(achievement)
-            self.db.commit()
-            self.db.refresh(achievement)
-
-        return AchievementOut.model_validate(achievement)
+    # старый метод для обратной совместимости
+    get_user_achievements = list_user_achievements
