@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: ai_user
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: ai_test
+        ports: [ "5432:5432" ]
+        options: >-
+          --health-cmd="pg_isready" --health-interval=10s
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+
+    env:
+      ENVIRONMENT: test
+      DATABASE_URL: postgresql://ai_user:pass@localhost:5432/ai_test
+      CELERY_BROKER_URL: redis://localhost:6379/0
+      CELERY_RESULT_BACKEND: redis://localhost:6379/0
+      LLM_PROVIDER: stub
+      CALENDAR_PROVIDER: noop
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install --no-cache-dir -r requirements.txt
+      - run: pip install black flake8
+      - run: flake8 .
+      - run: black --check .
+      - run: pytest -m "not integration"
