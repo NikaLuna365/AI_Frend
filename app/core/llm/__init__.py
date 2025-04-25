@@ -1,15 +1,39 @@
-# app/core/llm/__init__.py
+"""
+core.llm
+~~~~~~~~
+Адаптивный слой поверх конкретных LLM-SDK.
+
+Интерфейс:
+    class BaseLLM:
+        def generate(self, prompt: str, context: list[Message]) -> str: ...
+        def extract_events(self, text: str) -> list[Event]: ...
+
+Фабрика:
+    from app.core.llm import get_llm
+    llm = get_llm()        # выбирает нужный класс по settings.LLM_PROVIDER
+"""
 from __future__ import annotations
 
-from app.config import settings
-from .gemini import GeminiProvider
-from .stub import StubProvider
+from typing import Dict, Type
 
-_LLM_REGISTRY = {
-    "gemini": GeminiProvider,
-    "stub": StubProvider,
+from app.config import settings
+from .base import BaseLLM
+from .providers.stub import StubLLMProvider
+from .providers.gemini import GeminiLLMProvider
+
+# ────────────────────────────────────────────────────────────
+#   РЕЕСТР
+# ────────────────────────────────────────────────────────────
+_LLM_REGISTRY: Dict[str, Type[BaseLLM]] = {
+    "stub": StubLLMProvider,
+    "gemini": GeminiLLMProvider,
 }
 
 
-def get_llm():
-    return _LLM_REGISTRY.get(settings.LLM_PROVIDER, StubProvider)()
+def get_llm() -> BaseLLM:
+    """Возвращает инстанс нужного провайдера согласно конфигу."""
+    provider = settings.LLM_PROVIDER.lower()
+    try:
+        return _LLM_REGISTRY[provider]()  # type: ignore[call-arg]
+    except KeyError as exc:  # pragma: no cover
+        raise RuntimeError(f"Unknown LLM provider: {provider}") from exc
