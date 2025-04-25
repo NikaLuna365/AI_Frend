@@ -8,10 +8,10 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import List, Optional, TypedDict
 
+from app.config import settings  # для фабрики ниже
+from importlib import import_module
 
-# ────────────────────────────────
-# Публичные типы, которые импортируют другие модули
-# ────────────────────────────────
+
 class Message(TypedDict):
     """Сообщение в чат-истории."""
     role: str         # "user" | "assistant" | "system"
@@ -26,9 +26,6 @@ class Event(TypedDict, total=False):
     description: Optional[str]
 
 
-# ────────────────────────────────
-# Абстрактный базовый класс LLM-провайдера
-# ────────────────────────────────
 class BaseLLM(ABC):
     """Интерфейс, который должны реализовывать все провайдеры (Gemini, Stub…)."""
 
@@ -38,40 +35,50 @@ class BaseLLM(ABC):
         prompt: str,
         history: List[Message] | None = None,
     ) -> str:
-        """Сгенерировать ответ-реплику (plain-text)."""
+        """
+        Сгенерировать ответ-реплику (plain-text).
+        :param prompt: текущий текст от пользователя
+        :param history: список предыдущих сообщений
+        :return: текст ответа
+        """
 
     @abstractmethod
     def extract_events(self, text: str) -> List[Event]:
-        """Распарсить текст и вернуть список событий (может быть пустым)."""
+        """
+        Распарсить текст и вернуть список событий (может быть пустым).
+        :param text: полный текст диалога или сообщение
+        :return: список Event
+        """
 
 
-# ────────────────────────────────
-# Функция-фабрика для registry-паттерна
-# ────────────────────────────────
-from importlib import import_module
-from app.config import settings
-
-_PROVIDER_REGISTRY = {
+# ──────────────────────────────────────────────────────────
+# Registry / фабрика для провайдеров
+# ──────────────────────────────────────────────────────────
+_PROVIDER_REGISTRY: dict[str, str] = {
     "gemini": "app.core.llm.providers.gemini:GeminiProvider",
     "stub":   "app.core.llm.providers.stub:StubProvider",
-    # при необходимости добавите 'openai', 'llama.cpp' и т.д.
+    # можно добавить "openai", "llama", и т.д.
 }
 
 
 def get_llm_provider() -> BaseLLM:
     """
-    Возвращает *экземпляр* LLM-провайдера в зависимости от settings.LLM_PROVIDER
-    (по умолчанию — «stub» в .env.test).
+    Возвращает экземпляр LLM-провайдера в зависимости от
+    settings.LLM_PROVIDER (env: LLM_PROVIDER).
     """
-    provider_path = _PROVIDER_REGISTRY[settings.LLM_PROVIDER]
-    module_path, cls_name = provider_path.split(":")
-
+    path = _PROVIDER_REGISTRY.get(settings.LLM_PROVIDER)
+    if not path:
+        raise RuntimeError(f"Unknown LLM provider: {settings.LLM_PROVIDER!r}")
+    module_path, cls_name = path.split(":")
     module = import_module(module_path)
-    provider_cls: type[BaseLLM] = getattr(module, cls_name)
+    provider_cls = getattr(module, cls_name)
     return provider_cls()  # type: ignore[return-value]
 
 
-# ────────────────────────────────
-# Экспортируем имена, чтобы их было видно при `from … import *`
-# ────────────────────────────────
-__all__ = ["Message", "Event", "BaseLLM", "get_llm_provider"]
+# Чтобы `from .base import *` работало корректно
+__all__ = [
+    "Message",
+    "Event",
+    "BaseLLM",
+    "get_llm_provider",
+]
