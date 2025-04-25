@@ -1,14 +1,24 @@
-from fastapi import APIRouter
-from typing import List
+# app/api/v1/calendar.py
 from datetime import datetime, timedelta
+from typing import List
+
+from fastapi import APIRouter
+from pydantic import BaseModel
+
 from app.core.calendar.base import get_calendar_provider
-from app.core.calendar.models import EventOut
 
-router = APIRouter()
+router = APIRouter(prefix="/v1/calendar", tags=["Calendar"])
 
-@router.get('/{user_id}', response_model=List[EventOut])
-def get_calendar(user_id: str):
-    provider = get_calendar_provider()
+
+class EventOut(BaseModel):
+    title: str
+    start: datetime
+    end: datetime | None = None
+
+
+@router.get("/{user_id}", response_model=List[EventOut])
+def list_events(user_id: str):
+    prov = get_calendar_provider()
     now = datetime.utcnow()
-    future = now + timedelta(days=30)
-    return provider.list_events(user_id, now, future)
+    week = now + timedelta(days=7)
+    return prov.list_events(user_id, now, week)
