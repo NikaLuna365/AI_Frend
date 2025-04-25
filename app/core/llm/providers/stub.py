@@ -1,23 +1,25 @@
+"""
+Stub-провайдер для тестов и локальной разработки.
+Не обращается к внешним API.
+"""
+
 from __future__ import annotations
 
-import re
-from datetime import datetime
-from typing import List
+from typing import List, Sequence
 
-from .base import BaseLLM, Event, Message
+from app.core.llm.schemas import Message, Event
+from .base import BaseLLMProvider
 
 
-class StubLLM(BaseLLM):
-    """Простейший детерминированный провайдер – зелёные тесты."""
+class StubLLMProvider(BaseLLMProvider):
+    """Минимальный «заглушечный» LLM-клиент."""
 
-    def chat(self, user_text: str, ctx: List[Message]):
-        reply = "ok"
-        events: List[Event] = []
+    name: str = "stub"
 
-        # very naive date like 2025-01-01
-        m = re.search(r"(\d{4})-(\d{2})-(\d{2})", user_text)
-        if m:
-            y, m_, d = map(int, m.groups())
-            events.append(Event(title="Detected date", start=datetime(y, m_, d, 12, 0)))
+    # возвращаем фиксированную строку, которую ждут unit-тесты
+    def generate(self, prompt: str, context: Sequence[Message]) -> str:  # noqa: D401
+        return "stub-reply"
 
-        return reply, events
+    # для тестов calendaring-цепочки можно вернуть пустой список
+    def extract_events(self, text: str) -> List[Event]:  # noqa: D401
+        return []
