@@ -1,11 +1,25 @@
 # app/core/calendar/noop.py
-from typing import Any
+"""
+No-op провайдер календаря: ничего не делает. Используется в тестах.
+"""
+
+from typing import Any, List
 
 
-class NoOpCalendarProvider:
-    """Ничего не делает — используется в тестах."""
+class NoOpProvider:
+    def add_event(
+        self,
+        user_id: str,
+        title: str,
+        start_dt: Any,
+        end_dt: Any | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> None: ...
 
-    def add_event(self, *args, **kwargs) -> None: ...
-
-    def list_events(self, *args, **kwargs) -> list[Any]:
+    def list_events(
+        self,
+        user_id: str,
+        from_dt: Any,
+        to_dt: Any,
+    ) -> List[Any]:
         return []
