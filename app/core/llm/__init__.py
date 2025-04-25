@@ -1,8 +1,20 @@
-# app/core/llm/__init__.py
+"""
+Верхнеуровневый модуль `app.core.llm`.
 
-from .providers.base import BaseLLM, Event, Message
-from .providers.stub import StubLLMProvider
-from .providers.gemini import GeminiLLMProvider
-from .get_llm import get_llm    # если вы уже экспортировали get_llm сюда
+* Экспортирует базовые типы (`Message`, `Event`).
+* Предоставляет фабрику `get_llm`, которая возвращает готовый LLM-провайдер
+  в соответствии с настройкой `settings.LLM_PROVIDER`.
+"""
+from __future__ import annotations
+
+from app.core.llm.providers import (   # noqa: F401
+    Message,
+    Event,
+    BaseLLMProvider,
+    get_llm_provider,
+)
+
+# Наружу отдаём короткое имя, как раньше требовали импорты:
+get_llm = get_llm_provider  # noqa: N816
 
 __all__ = ["get_llm", "BaseLLM", "Event", "Message", "StubLLMProvider", "GeminiLLMProvider"]
