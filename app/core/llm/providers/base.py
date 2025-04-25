@@ -1,34 +1,58 @@
-'''
-Базовый интерфейс для LLM-провайдеров.
-
-- Каждый конкретный провайдер (Gemini, OpenAI, Stub и т.п.) обязан
-  реализовать два метода:
-    - generate()       -> сгенерировать ответ
-    - extract_events() -> распарсить события из текста
-
-- Используется client-обёрткой (app/core/llm/client.py) и тестами.
-'''
-
+"""
+Базовые типы и абстракция LLM-провайдера.
+По этому интерфейсу работают Gemini, Stub и будущие реализации.
+"""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List, Sequence
-
-from app.core.llm.schemas import Message, Event
+from typing import List, TypedDict
 
 
-class BaseLLM(ABC):
-    """Абстрактный LLM-провайдер."""
+class Message(TypedDict):
+    """Сообщение в диалоге."""
+    role: str        # 'user' | 'assistant' | …
+    content: str     # текст
 
-    # Уникальное имя провайдера, переопределяется в конкретных классах
-    name: str = "base"
+
+class Event(TypedDict):
+    """Структурированное событие, извлечённое из текста."""
+    title: str
+    start: str | None          # ISO-строка либо None
+    end: str | None            # ISO-строка либо None
+    meta: dict | None          # произвольные дополнительные данные
+
+
+class BaseLLMProvider(ABC):
+    """Единый контракт для всех LLM-адаптеров."""
+
+    # ▼------------------- Обязательные методы -------------------▼
+    @abstractmethod
+    def generate(self, prompt: str, context: List[Message] | None = None) -> str: ...
 
     @abstractmethod
-    def generate(self, prompt: str, context: Sequence[Message]) -> str:
-        """Сгенерировать текст-ответ по prompt + history."""
-        raise NotImplementedError  # pragma: no cover
+    def extract_events(self, text: str) -> List[Event]: ...
+    # ▲-----------------------------------------------------------▲
 
-    @abstractmethod
-    def extract_events(self, text: str) -> List[Event]:
-        """Найти события (дата/время/описание) в сгенерированном тексте."""
-        raise NotImplementedError  # pragma: no cover
+
+# исторический алиас — чтобы старый импорт «BaseLLM» тоже работал
+BaseLLM = BaseLLMProvider  # noqa: N816
+
+
+# ---------------- Фабрика провайдеров ---------------- #
+def get_llm_provider(name: str | None = None) -> BaseLLMProvider:
+    """
+    Возвращает экземпляр провайдера по имени.
+    Если имя не передано — смотрим конфиг `settings.LLM_PROVIDER`.
+    """
+    from app.config import settings  # локальный импорт, чтобы избежать циклов
+
+    provider = (name or settings.LLM_PROVIDER).lower()
+
+    if provider == "stub":
+        from .stub import StubLLMProvider
+        return StubLLMProvider()
+    if provider == "gemini":
+        from .gemini import GeminiLLMProvider
+        return GeminiLLMProvider()
+
+    raise ValueError(f"Unknown LLM provider: {provider!r}")
