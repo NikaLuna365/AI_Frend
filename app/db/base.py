@@ -1,12 +1,12 @@
 # app/db/base.py
 """
-Engine / SessionLocal + helperы.
-Совместим как с новым кодом, так и со старыми импортами (get_db_session).
+База, движок и вспом-helpers.
+При ENVIRONMENT=test автоматически создаём/чистим схему — unit-тестам
+не нужны миграции или Alembic.
 """
 
 from __future__ import annotations
 
-import os
 from contextlib import contextmanager
 from typing import Generator
 
@@ -16,9 +16,9 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.config import settings
 
-# ---------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 # Engine / Session
-# ---------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 engine = create_engine(
     settings.DATABASE_URL,
     echo=settings.ENVIRONMENT == "dev",
@@ -27,23 +27,27 @@ engine = create_engine(
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
 Base = declarative_base()
 
-# ---------------------------------------------------------------------- #
-# Compatibility: Engine.table_names() (SQLAlchemy ≥2.0)
-# ---------------------------------------------------------------------- #
-def _table_names(self: Engine) -> list[str]:
+# --------------------------------------------------------------------------- #
+# Engine.table_names() совместимо с SA 2.*
+# --------------------------------------------------------------------------- #
+def _table_names(self: Engine):  # pragma: no cover
     return inspect(self).get_table_names()
 
-if not hasattr(Engine, "table_names"):
-    Engine.table_names = _table_names  # type: ignore
 
-# ---------------------------------------------------------------------- #
-# Dependency helpers
-# ---------------------------------------------------------------------- #
+if not hasattr(Engine, "table_names"):
+    Engine.table_names = _table_names  # type: ignore[attr-defined]
+
+# --------------------------------------------------------------------------- #
+# При тестах — clean schema on import
+# --------------------------------------------------------------------------- #
+if settings.ENVIRONMENT == "test":  # pragma: no cover
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+# --------------------------------------------------------------------------- #
+# FastAPI dependency + context-manager
+# --------------------------------------------------------------------------- #
 def get_db_session() -> Generator:
-    """
-    FastAPI dependency — yield Session и корректно закрыть.
-    Старые роуты рассчитывают именно на это имя.
-    """
     db = SessionLocal()
     try:
         yield db
@@ -53,7 +57,6 @@ def get_db_session() -> Generator:
 
 @contextmanager
 def db_session():
-    """Контекст-менеджер для скриптов/тасков без FastAPI."""
     db = SessionLocal()
     try:
         yield db
@@ -63,8 +66,8 @@ def db_session():
 
 __all__ = [
     "engine",
-    "SessionLocal",
     "Base",
-    "get_db_session",  # важно: экспортируем для импортов в роутерах
+    "SessionLocal",
+    "get_db_session",
     "db_session",
 ]
