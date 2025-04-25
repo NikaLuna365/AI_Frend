@@ -1,77 +1,66 @@
-# app/core/achievements/models.py
 """
-SQLAlchemy-модели для подсистемы «Achievements».
+ORM-модели ачивок.
 
-Таблицы:
-    achievement_rules  – справочник возможных достижений;
-    achievements       – конкретные медали пользователей.
+Важно: импортируем общий Base из app.db.base -- это убирает ошибку
+«Table 'achievement_rules' is already defined …».
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import (
-    Column,
-    DateTime,
-    ForeignKey,
-    Integer,
-    String,
-    Text,
-)
-from sqlalchemy.orm import DeclarativeMeta, relationship
+from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
+# --------------------------------------------------------------------------- #
+#                               AchievementRule                               #
+# --------------------------------------------------------------------------- #
 
-class AchievementRule(Base):  # type: ignore[misc]
-    """Каталог правил достижений."""
 
+class AchievementRule(Base):  # type: ignore[pycodestyle]
     __tablename__ = "achievement_rules"
 
-    code = Column(String, primary_key=True, doc="Уникальный код бейджа")
-    title = Column(String, nullable=False, doc="Заголовок бейджа")
-    icon_url = Column(String, nullable=False, doc="URL иконки (PNG/SVG)")
-    description = Column(Text, nullable=True, doc="Описание условия получения")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str] = mapped_column(String(256), nullable=True)
+    icon_url: Mapped[str | None] = mapped_column(String(256))
+
+    achievements: Mapped[list["Achievement"]] = relationship(
+        back_populates="rule", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:  # pragma: no cover
-        return f"<AchievementRule code={self.code!r} title={self.title!r}>"
+        return f"<AchievementRule {self.code!r}>"
 
 
-class Achievement(Base):  # type: ignore[misc]
-    """Конкретная медаль, присуждённая пользователю."""
+# --------------------------------------------------------------------------- #
+#                                Achievement                                  #
+# --------------------------------------------------------------------------- #
 
+
+class Achievement(Base):  # type: ignore[pycodestyle]
     __tablename__ = "achievements"
-
-    id = Column(Integer, primary_key=True, autoincrement=True, index=True)
-    user_id = Column(
-        Integer,
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-        doc="FK → users.id",
-    )
-    code = Column(
-        String,
-        ForeignKey("achievement_rules.code", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-        doc="FK → achievement_rules.code",
-    )
-    title = Column(String, nullable=False, doc="Копия title на момент выдачи")
-    icon_url = Column(String, nullable=False, doc="Копия icon_url на момент выдачи")
-    created_at = Column(
-        DateTime,
-        default=datetime.utcnow,
-        nullable=False,
-        doc="Время выдачи",
+    __table_args__ = (
+        UniqueConstraint("user_id", "code", name="uq_user_code"),
     )
 
-    # связь с правилом (без статической аннотации во избежание MappedAnnotationError)
-    rule = relationship("AchievementRule", lazy="joined")
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    code: Mapped[str] = mapped_column(
+        String(64), ForeignKey("achievement_rules.code"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=datetime.utcnow, nullable=False
+    )
+
+    rule: Mapped[AchievementRule] = relationship(back_populates="achievements")
+
+    # краткие алиасы – чтобы удобнее в сервисах
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    icon_url: Mapped[str | None] = mapped_column(String(256))
 
     def __repr__(self) -> str:  # pragma: no cover
-        return (
-            f"<Achievement id={self.id} user_id={self.user_id} "
-            f"code={self.code!r} created_at={self.created_at}>"
-        )
+        return f"<Achievement {self.user_id}:{self.code}>"
