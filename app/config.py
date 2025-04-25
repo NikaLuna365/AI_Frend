@@ -1,100 +1,87 @@
 """
-app.config
-~~~~~~~~~~
+Единая точка загрузки конфигурации приложения.
 
-Единая точка входа для всех настроек приложения.
-
-* Читает .env-файл, выбранный переменной ENVIRONMENT.
-* Не использует os.getenv напрямую — всё идёт через Pydantic 2 и
-  pydantic-settings.
-* Экспортирует готовый объект `settings`, который импортируется
-  где угодно: `from app.config import settings`.
+* Поддерживает три окружения: dev / prod / test.
+* Определяет, какой .env-файл подключить, глядя на переменную ENVIRONMENT,
+  которую выставляют Docker-compose или CI.
+* Никаких динамических «копирований dict» — всё задаётся
+  в `model_config` класса Settings раз и навсегда.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # ────────────────────────────────────────────────────────────────
-# Карта окружений  →  какой .env подключаем
+# Определяем, какой .env-файл брать
 # ────────────────────────────────────────────────────────────────
-_ENV_FILES = {
-    "prod": ".env.prod",
-    "dev": ".env.dev",
-    "test": ".env.test",
-}
+# ENVIRONMENT обязан быть задан: docker-compose передаёт его из .env
+ENVIRONMENT = os.getenv("ENVIRONMENT", "dev").lower()  # dev / prod / test
+ENV_FILE = Path(__file__).resolve().parent.parent / f".env.{ENVIRONMENT}"
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent  # /app
-DEFAULT_ENV_FILE = PROJECT_ROOT / ".env"               # fallback
-
-
-class Settings(BaseSettings):
-    """
-    Все переменные среды приложения.
-
-    * Поле `model_config` заменяет класс Config из Pydantic 1.x.
-    * Значения читаются из .env-файла + системных переменных.
-    """
-
-    # ------------------------------------------------------------------
-    # где искать .env
-    # ------------------------------------------------------------------
-    model_config = SettingsConfigDict(
-        env_file=DEFAULT_ENV_FILE,      # переопределим ниже в __init__
-        env_file_encoding="utf-8",
-        extra="ignore",                 # игнорируем неожиданные переменные
+# Если файла нет, падаем с внятной ошибкой ещё на этапе импорта.
+if not ENV_FILE.exists():
+    raise FileNotFoundError(
+        f"[config] .env-файл для окружения '{ENVIRONMENT}' не найден: {ENV_FILE}"
     )
 
-    # ------------------------------------------------------------------
-    # базовые
-    # ------------------------------------------------------------------
-    ENVIRONMENT: str = Field("dev", env="ENVIRONMENT")  # dev / prod / test
+# ────────────────────────────────────────────────────────────────
+# Модель настроек
+# ────────────────────────────────────────────────────────────────
+class Settings(BaseSettings):
+    """Все переменные среды, доступные приложению."""
 
-    # ------------------------------------------------------------------
-    # БД и кеши
-    # ------------------------------------------------------------------
+    # где и как читать переменные
+    model_config = SettingsConfigDict(
+        env_file=str(ENV_FILE),
+        env_file_encoding="utf-8",
+        extra="ignore",  # лишние переменные не валят приложение
+    )
+
+    # базовые
+    ENVIRONMENT: str = Field(..., env="ENVIRONMENT")
+
+    # БД / кеш
     DATABASE_URL: str = Field(..., env="DATABASE_URL")
     CELERY_BROKER_URL: str = Field(..., env="CELERY_BROKER_URL")
     CELERY_RESULT_BACKEND: str = Field(..., env="CELERY_RESULT_BACKEND")
 
-    # ------------------------------------------------------------------
-    # Google / LLM
-    # ------------------------------------------------------------------
-    GOOGLE_PROJECT: str = Field(..., env="GOOGLE_PROJECT")
-    GEMINI_API_KEY: str = Field(..., env="GEMINI_API_KEY")
-    LLM_PROVIDER: str = Field("stub", env="LLM_PROVIDER")  # gemini / stub
+    # LLM / Google
+    LLM_PROVIDER: str = Field("stub", env="LLM_PROVIDER")            # gemini / stub
+    GEMINI_API_KEY: str = Field("", env="GEMINI_API_KEY")
+    GOOGLE_PROJECT: str = Field("", env="GOOGLE_PROJECT")
 
-    # ------------------------------------------------------------------
-    # Календарь / TTS / STT
-    # ------------------------------------------------------------------
+    # Календарь, TTS/STT
     CALENDAR_PROVIDER: str = Field("noop", env="CALENDAR_PROVIDER")  # google / noop
+    GOOGLE_CALENDAR_CREDENTIALS_JSON: Path | None = Field(
+        None, env="GOOGLE_CALENDAR_CREDENTIALS_JSON"
+    )
     SPEECH_LANGUAGE: str = Field("ru-RU", env="SPEECH_LANGUAGE")
     TTS_VOICE: str = Field("ru-RU-Wavenet-D", env="TTS_VOICE")
 
-    # ------------------------------------------------------------------
-    # прочее (добавляйте по мере необходимости)
-    # ------------------------------------------------------------------
+    # Добавляйте новые поля ниже ⤵︎
     # ...
 
-    # ——————————————————————————————————————————————————————————————
-    # динамически подменяем env_file в зависимости от ENVIRONMENT
-    # ——————————————————————————————————————————————————————————————
-    def __init__(self, **data):
-        env = data.get("ENVIRONMENT") or (DEFAULT_ENV_FILE.exists() and DEFAULT_ENV_FILE.read_text().split("=", 1)[-1].strip())  # noqa: E501
-        env_file_path = PROJECT_ROOT / _ENV_FILES.get(env, ".env")
-        object.__setattr__(self, "model_config", self.model_config.copy(update={"env_file": env_file_path}))
-        super().__init__(**data)
+    # convenience
+    @property
+    def is_prod(self) -> bool:  # pragma: no cover
+        return self.ENVIRONMENT == "prod"
 
 
-# Экспортируем singleton
+# ────────────────────────────────────────────────────────────────
+# Синглтон конфигурации
+# ────────────────────────────────────────────────────────────────
 settings = Settings()
 
 # ────────────────────────────────────────────────────────────────
-# Быстрый самотест — выводим важные параметры при прямом запуске
+# Быстрый локальный самотест (python -m app.config)
 # ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":  # pragma: no cover
     import json
+
+    print(f"Loaded env file: {ENV_FILE}")
     print(json.dumps(settings.model_dump(mode="json"), indent=2, ensure_ascii=False))
