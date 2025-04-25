@@ -17,10 +17,16 @@ from .base import BaseCalendarProvider, CalendarEvent  # noqa: F401
 #                            Реальные / заглушки-провайдеры                   #
 # --------------------------------------------------------------------------- #
 
-# lazy-import, чтобы тяжёлые SDK не тянулись в unit-тестах
-def _lazy_import(path: str, name: str) -> Type[BaseCalendarProvider]:
-    module = importlib.import_module(path)
-    return getattr(module, name)
+def _lazy_import(module_path: str, attr_name: str) -> Type[BaseCalendarProvider]:
+    """
+    Отложенный импорт, чтобы тяжёлые SDK не тянулись при unit-тестах.
+
+    `module_path` может быть относительным ('.google').
+    Мы передаём текущий пакет в `package`, чтобы Python правильно
+    резолвил относительный путь.
+    """
+    module = importlib.import_module(module_path, package=__name__)
+    return getattr(module, attr_name)
 
 
 CALENDAR_PROVIDERS: Dict[str, Type[BaseCalendarProvider]] = {
@@ -38,7 +44,7 @@ def get_calendar_provider(name: str | None = None) -> BaseCalendarProvider:
 
     • если name передан явно — берём его;
     • иначе читаем из конфигурации (settings.CALENDAR_PROVIDER);
-    • выбрасываем KeyError / ValueError, если неизвестно.
+    • выбрасываем ValueError, если неизвестно.
     """
     provider_name = (name or settings.CALENDAR_PROVIDER).lower()
     try:
@@ -53,16 +59,14 @@ def get_calendar_provider(name: str | None = None) -> BaseCalendarProvider:
 # --------------------------------------------------------------------------- #
 
 __all__: list[str] = [
-    # публичное
     "BaseCalendarProvider",
     "CalendarEvent",
     "get_calendar_provider",
 ]
 
-# ① Сохраняем ссылку в самом пакете
+# ① Делаем атрибут доступным как app.core.calendar.get_calendar_provider
 sys.modules[__name__].get_calendar_provider = get_calendar_provider  # type: ignore[attr-defined]
 
-# ② И — главное! — прокидываем её в модуль base,
-#     чтобы `from app.core.calendar.base import get_calendar_provider` продолжал работать
+# ② Прокидываем его в модуль base, чтобы старые импорты продолжали работать
 _base_mod = sys.modules[__name__ + ".base"]
 setattr(_base_mod, "get_calendar_provider", get_calendar_provider)
