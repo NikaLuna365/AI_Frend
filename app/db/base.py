@@ -3,7 +3,7 @@
 Unified SQLAlchemy base & session factory.
 
 • Uses **single Declarative `Base`** so that all models share one MetaData
-  – это предотвращает дублирование таблиц при повторных импортах в тестах.
+  – this prevents duplicate table definitions when models are imported multiple times in tests.
 
 • Automatically switches engine:
     ENVIRONMENT=test  →  SQLite in-memory (fast, no external deps)
@@ -59,7 +59,7 @@ def _make_engine():
 
 _engine = _make_engine()
 
-# Session factory. `scoped_session` provides thread / task-local instances.
+# Session factory. `scoped_session` provides task/thread-local instances.
 SessionLocal: sessionmaker[Session] = sessionmaker(
     bind=_engine,
     autocommit=False,
@@ -70,13 +70,13 @@ ScopedSession = scoped_session(SessionLocal)
 
 
 # --------------------------------------------------------------------------- #
-#                         public helpers / dependencies                       #
+#                         Public helpers / dependencies                       #
 # --------------------------------------------------------------------------- #
 def get_db_session() -> Generator[Session, None, None]:
     """
     FastAPI dependency (sync). Ensures single Session per request / Celery task.
     """
-    db = ScopedSession()  # lazy-initialises for current task/thread
+    db = ScopedSession()  # lazy-init for current task/thread
     try:
         yield db
     finally:
@@ -92,7 +92,7 @@ def session_context() -> Generator[Session, None, None]:
     try:
         yield db
         db.commit()
-    except Exception:  # pragma: no cover
+    except Exception:
         db.rollback()
         raise
     finally:
@@ -100,7 +100,7 @@ def session_context() -> Generator[Session, None, None]:
 
 
 # --------------------------------------------------------------------------- #
-#                         convenience re-exports for tests                    #
+#                         Convenience re-exports for tests                    #
 # --------------------------------------------------------------------------- #
 engine = _engine  # tests import this directly
 
