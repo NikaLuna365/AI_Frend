@@ -1,64 +1,55 @@
-"""
-Единый конфиг приложения.
+# app/config.py
 
-•  BaseSettings – через pydantic-settings (PyDantic v2).
-•  Три окружения: prod / dev / test.
-•  Для test подменяем DATABASE_URL на SQLite in-memory,
-   а LLM_PROVIDER – на «stub».
 """
+Application configuration.
 
-from __future__ import annotations
+Reads environment variables and `.env.{environment}` file using Pydantic v2 BaseSettings.
+Supports three modes via ENVIRONMENT:
+  - prod → loads `.env.prod`
+  - dev  → loads `.env.dev`
+  - test → loads `.env.test`
+"""
 
 import os
-from pathlib import Path
-
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Utilities
-# ─────────────────────────────────────────────────────────────────────────────
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-ENVIRONMENT = os.getenv("ENVIRONMENT", "dev").lower()
-ENV_FILE = BASE_DIR / f".env.{ENVIRONMENT}"    # .env.dev / .env.test / ...
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Settings
-# ─────────────────────────────────────────────────────────────────────────────
+# Determine which .env file to load based on ENVIRONMENT
+env_name = os.getenv("ENVIRONMENT", "dev")
+env_file = f".env.{env_name}"
 
 class Settings(BaseSettings):
-    # Где читать переменные
+    # Pydantic v2 settings configuration
     model_config = SettingsConfigDict(
-        env_file=str(ENV_FILE),
+        env_file=env_file,
         env_file_encoding="utf-8",
     )
 
-    # ─────────── Core ───────────
-    ENVIRONMENT: str = Field(ENVIRONMENT, env="ENVIRONMENT")
+    # Application environment: prod, dev, or test
+    ENVIRONMENT: str = Field(..., env="ENVIRONMENT")
 
-    DATABASE_URL: str = Field(
-        default="sqlite:///./local.db",  # перезаписывается в init
-        env="DATABASE_URL",
-    )
+    # Database
+    DATABASE_URL: str = Field(..., env="DATABASE_URL")
 
-    REDIS_URL: str = Field("redis://redis:6379/0", env="REDIS_URL")
-    LLM_PROVIDER: str = Field("stub", env="LLM_PROVIDER")
+    # Google Calendar
+    GOOGLE_PROJECT: str = Field(..., env="GOOGLE_PROJECT")
+    GOOGLE_CALENDAR_CREDENTIALS_JSON: str = Field(..., env="GOOGLE_CALENDAR_CREDENTIALS_JSON")
 
-    # Google / Gemini keys (prod / dev)
-    GOOGLE_PROJECT: str | None = Field(None, env="GOOGLE_PROJECT")
-    GEMINI_API_KEY: str | None = Field(None, env="GEMINI_API_KEY")
+    # LLM
+    GEMINI_API_KEY: str = Field(..., env="GEMINI_API_KEY")
+    LLM_PROVIDER: str = Field(..., env="LLM_PROVIDER")
 
-    # ─────────── Dynamic post-init ───────────
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    # Calendar provider
+    CALENDAR_PROVIDER: str = Field(..., env="CALENDAR_PROVIDER")
 
-        if self.ENVIRONMENT == "test":
-            # Юнит-тесты – SQLite in-memory и заглушки
-            object.__setattr__(self, "DATABASE_URL", "sqlite:///:memory:")
-            object.__setattr__(self, "LLM_PROVIDER", "stub")
+    # Speech / TTS
+    SPEECH_LANGUAGE: str = Field(..., env="SPEECH_LANGUAGE")
+    TTS_VOICE: str = Field(..., env="TTS_VOICE")
+
+    # Celery
+    CELERY_BROKER_URL: str = Field(..., env="CELERY_BROKER_URL")
+    CELERY_RESULT_BACKEND: str = Field(..., env="CELERY_RESULT_BACKEND")
 
 
+# Single global settings instance
 settings = Settings()
