@@ -1,42 +1,39 @@
-"""
-Базовые абстракции календарных провайдеров.
-
-⚠️  Не импортируем ничего из app.core.calendar,
-чтобы избежать циклической зависимости.
-"""
-
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import TypedDict, Optional, List
 from datetime import datetime
-from typing import List, Protocol
-
 
 # --------------------------------------------------------------------------- #
-#                               Pydantic-like схемы                           #
+#                             Событие в календаре                             #
 # --------------------------------------------------------------------------- #
 
-class CalendarEvent(Protocol):
+class CalendarEvent(TypedDict):
+    id: str
+    user_id: str
     title: str
     start: datetime
-    end: datetime | None
+    end: Optional[datetime]
+    description: Optional[str]
+    provider: str
 
 
 # --------------------------------------------------------------------------- #
-#                        Абстрактный календарный провайдер                    #
+#                         Интерфейс провайдера календаря                      #
 # --------------------------------------------------------------------------- #
 
 class BaseCalendarProvider(ABC):
-    """Интерфейс любого календарного бэкэнда (Google, Outlook, No-op …)."""
+    """Базовый интерфейс для всех календарных провайдеров."""
+    name: str
 
     @abstractmethod
     def list_events(
         self,
         user_id: str,
-        *,
-        from_dt: datetime,
-        to_dt: datetime | None = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
     ) -> List[CalendarEvent]:
+        """Получить список событий пользователя в интервале."""
         ...
 
     @abstractmethod
@@ -45,13 +42,16 @@ class BaseCalendarProvider(ABC):
         user_id: str,
         title: str,
         start: datetime,
-        end: datetime | None = None,
+        end: Optional[datetime] = None,
+        description: Optional[str] = None,
     ) -> CalendarEvent:
+        """Создать новое событие."""
         ...
 
+    @abstractmethod
+    def delete_event(self, event_id: str) -> None:
+        """Удалить событие по идентификатору."""
+        ...
 
-# --------------------------------------------------------------------------- #
-#                    ↓↓↓  get_calendar_provider «добавится» позднее  ↓↓↓      #
-# --------------------------------------------------------------------------- #
-# Пакет app.core.calendar, закончив инициализацию, сам присвоит
-#   this_module.get_calendar_provider = real_function
+# Для удобства тестов: переэкспортируем функцию
+from app.core.calendar import get_calendar_provider  # noqa: F401
