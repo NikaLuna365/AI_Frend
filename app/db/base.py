@@ -1,14 +1,22 @@
 # app/db/base.py
 """
-Single declarative Base + session helpers.
+Unified SQLAlchemy base & session factory.
 
-• Uses test-friendly SQLite in-memory when ENVIRONMENT == 'test'.
-• Provides `get_db_session` dependency and `session_context` helper.
+• Uses **single Declarative `Base`** so that all models share one MetaData
+  – это предотвращает дублирование таблиц при повторных импортах в тестах.
+
+• Automatically switches engine:
+    ENVIRONMENT=test  →  SQLite in-memory (fast, no external deps)
+    otherwise        →  DATABASE_URL from .env (PostgreSQL in dev/prod)
+
+The helper `get_db_session()` is used both as FastAPI dependency and
+in synchronous service code / Celery tasks.
 """
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+import contextlib
+import os
 from typing import Generator
 
 from sqlalchemy import create_engine
@@ -16,64 +24,67 @@ from sqlalchemy.orm import DeclarativeBase, Session, scoped_session, sessionmake
 
 from app.config import settings
 
-# --------------------------------------------------------------------------- #
-#                               Declarative base                              #
-# --------------------------------------------------------------------------- #
 
-
+# --------------------------------------------------------------------------- #
+#                               Declarative Base                              #
+# --------------------------------------------------------------------------- #
 class Base(DeclarativeBase):
-    """Common declarative base for all ORM models."""
+    """Один-единственный Base на проект."""
+    pass
 
 
 # --------------------------------------------------------------------------- #
-#                               Engine & Session                              #
+#                            Engine & Session factory                         #
 # --------------------------------------------------------------------------- #
 
-if settings.ENVIRONMENT == "test":
-    DATABASE_URL = "sqlite+pysqlite:///:memory:"
-    _engine_kwargs: dict[str, object] = {"echo": False, "future": True}
-else:
-    DATABASE_URL = settings.DATABASE_URL
-    _engine_kwargs = {
-        "echo": settings.ENVIRONMENT == "dev",
-        "pool_pre_ping": True,
-        "future": True,
-    }
+def _make_engine():
+    """Return SQLAlchemy Engine depending on ENVIRONMENT."""
+    if settings.ENVIRONMENT == "test":
+        # In-memory SQLite for unit / CI tests – spins up instantly,
+        # PgSQL-specific types are compatible enough for our models.
+        return create_engine(
+            "sqlite:///:memory:",
+            connect_args={"check_same_thread": False},
+            echo=False,
+            future=True,
+        )
 
-engine = create_engine(DATABASE_URL, **_engine_kwargs)
+    # dev / prod – whatever is in DATABASE_URL
+    return create_engine(
+        settings.DATABASE_URL,
+        echo=settings.ENVIRONMENT == "dev",
+        pool_pre_ping=True,
+        future=True,
+    )
 
-# Session factory
+
+_engine = _make_engine()
+
+# Session factory. `scoped_session` provides thread / task-local instances.
 SessionLocal: sessionmaker[Session] = sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine,
-    expire_on_commit=False,
+    bind=_engine, autocommit=False, autoflush=False, future=True
 )
+ScopedSession = scoped_session(SessionLocal)
 
-# Thread / task–local scoped session
-ScopedSession: scoped_session[Session] = scoped_session(SessionLocal)
 
 # --------------------------------------------------------------------------- #
-#                            helpers / dependency                             #
+#                         public helpers / dependencies                       #
 # --------------------------------------------------------------------------- #
-
-
 def get_db_session() -> Generator[Session, None, None]:
     """
-    FastAPI / service dependency.
-    Returns a thread-local Session that is automatically closed.
+    FastAPI dependency (sync). Ensures single Session per request / Celery task.
     """
-    db = ScopedSession()
+    db = ScopedSession()  # lazy-initialises for current task/thread
     try:
         yield db
     finally:
         db.close()
 
 
-@contextmanager
+@contextlib.contextmanager
 def session_context() -> Generator[Session, None, None]:
     """
-    Context-manager for CLI scripts / unit-tests that need manual control over commit.
+    Context-manager for scripts/tests. Commits on success, rollbacks otherwise.
     """
     db = ScopedSession()
     try:
@@ -86,4 +97,16 @@ def session_context() -> Generator[Session, None, None]:
         db.close()
 
 
-__all__: list[str] = ["Base", "engine", "SessionLocal", "ScopedSession", "get_db_session", "session_context"]
+# --------------------------------------------------------------------------- #
+#                         convenience re-exports for tests                    #
+# --------------------------------------------------------------------------- #
+engine = _engine  # tests import this directly
+
+__all__: list[str] = [
+    "Base",
+    "engine",
+    "SessionLocal",
+    "ScopedSession",
+    "get_db_session",
+    "session_context",
+]
