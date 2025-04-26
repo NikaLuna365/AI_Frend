@@ -1,29 +1,25 @@
-# app/db/base.py
 """
 Unified SQLAlchemy base & session factory.
 
-• Uses **single Declarative `Base`** so that all models share one MetaData
-  – this prevents duplicate table definitions when models are imported multiple times in tests.
+• Single Declarative ``Base`` so that all models share one ``MetaData`` –
+  предотвращает дубли таблиц при повторных импортах.
 
-• Automatically switches engine:
-    ENVIRONMENT=test  →  SQLite in-memory (fast, no external deps)
-    otherwise        →  DATABASE_URL from .env (PostgreSQL in dev/prod)
+• Engine selection:
+        ENVIRONMENT=test  →  SQLite in-memory (молниеносные unit-тесты)
+        иначе            →  ``settings.DATABASE_URL`` (PostgreSQL)
 
-The helper `get_db_session()` is used both as FastAPI dependency and
-in synchronous service code / Celery tasks.
+The helper ``get_db_session()`` работает и как FastAPI-dependency,
+и в сервисах/Celery-тасках.
 """
-
 from __future__ import annotations
 
 import contextlib
-import os
 from typing import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import DeclarativeBase, Session, scoped_session, sessionmaker
 
 from app.config import settings
-
 
 # --------------------------------------------------------------------------- #
 #                               Declarative Base                              #
@@ -39,8 +35,7 @@ class Base(DeclarativeBase):
 def _make_engine():
     """Return SQLAlchemy Engine depending on ENVIRONMENT."""
     if settings.ENVIRONMENT == "test":
-        # In-memory SQLite for unit / CI tests – spins up instantly,
-        # PgSQL-specific types are compatible enough for our models.
+        # In-memory SQLite – быстро и без внешних зависимостей.
         return create_engine(
             "sqlite:///:memory:",
             connect_args={"check_same_thread": False},
@@ -48,7 +43,7 @@ def _make_engine():
             future=True,
         )
 
-    # dev / prod – whatever is in DATABASE_URL
+    # dev / prod – что прописано в .env
     return create_engine(
         settings.DATABASE_URL,
         echo=settings.ENVIRONMENT == "dev",
@@ -59,24 +54,25 @@ def _make_engine():
 
 _engine = _make_engine()
 
-# Session factory. `scoped_session` provides task/thread-local instances.
+# --- back-compat: engine.table_names() удалили в SA 2.x, вернём для тестов ----
+setattr(
+    type(_engine),
+    "table_names",
+    lambda self: inspect(self).get_table_names()
+)
+# --------------------------------------------------------------------------- #
+
 SessionLocal: sessionmaker[Session] = sessionmaker(
-    bind=_engine,
-    autocommit=False,
-    autoflush=False,
-    future=True,
+    bind=_engine, autocommit=False, autoflush=False, future=True
 )
 ScopedSession = scoped_session(SessionLocal)
 
-
 # --------------------------------------------------------------------------- #
-#                         Public helpers / dependencies                       #
+#                         public helpers / dependencies                       #
 # --------------------------------------------------------------------------- #
 def get_db_session() -> Generator[Session, None, None]:
-    """
-    FastAPI dependency (sync). Ensures single Session per request / Celery task.
-    """
-    db = ScopedSession()  # lazy-init for current task/thread
+    """FastAPI dependency (sync). One Session per request / task."""
+    db = ScopedSession()
     try:
         yield db
     finally:
@@ -85,14 +81,12 @@ def get_db_session() -> Generator[Session, None, None]:
 
 @contextlib.contextmanager
 def session_context() -> Generator[Session, None, None]:
-    """
-    Context-manager for scripts/tests. Commits on success, rollbacks otherwise.
-    """
+    """Context-manager for scripts/tests.  Commit on success, rollback on error."""
     db = ScopedSession()
     try:
         yield db
         db.commit()
-    except Exception:
+    except Exception:  # pragma: no cover
         db.rollback()
         raise
     finally:
@@ -100,9 +94,9 @@ def session_context() -> Generator[Session, None, None]:
 
 
 # --------------------------------------------------------------------------- #
-#                         Convenience re-exports for tests                    #
+#                         convenience re-exports for tests                    #
 # --------------------------------------------------------------------------- #
-engine = _engine  # tests import this directly
+engine = _engine
 
 __all__: list[str] = [
     "Base",
