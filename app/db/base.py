@@ -1,6 +1,13 @@
+# app/db/base.py
+"""
+Single declarative Base + session helpers.
+
+• Uses test-friendly SQLite in-memory when ENVIRONMENT == 'test'.
+• Provides `get_db_session` dependency and `session_context` helper.
+"""
+
 from __future__ import annotations
 
-import os
 from contextlib import contextmanager
 from typing import Generator
 
@@ -13,40 +20,48 @@ from app.config import settings
 #                               Declarative base                              #
 # --------------------------------------------------------------------------- #
 
+
 class Base(DeclarativeBase):
-    """Единый DeclarativeBase для всех ORM-моделей."""
-    pass
+    """Common declarative base for all ORM models."""
 
 
 # --------------------------------------------------------------------------- #
 #                               Engine & Session                              #
 # --------------------------------------------------------------------------- #
 
-# Включаем echo в режиме dev, иначе скрываем SQL-логи
-_engine_kwargs: dict[str, object] = {
-    "echo": settings.ENVIRONMENT == "dev",
-    "pool_pre_ping": True,
-}
+if settings.ENVIRONMENT == "test":
+    DATABASE_URL = "sqlite+pysqlite:///:memory:"
+    _engine_kwargs: dict[str, object] = {"echo": False, "future": True}
+else:
+    DATABASE_URL = settings.DATABASE_URL
+    _engine_kwargs = {
+        "echo": settings.ENVIRONMENT == "dev",
+        "pool_pre_ping": True,
+        "future": True,
+    }
 
-engine = create_engine(settings.DATABASE_URL, **_engine_kwargs)
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
-# Фабрика сессий и «thread-/task-local» сессия
+# Session factory
 SessionLocal: sessionmaker[Session] = sessionmaker(
     autocommit=False,
     autoflush=False,
     bind=engine,
+    expire_on_commit=False,
 )
+
+# Thread / task–local scoped session
 ScopedSession: scoped_session[Session] = scoped_session(SessionLocal)
 
+# --------------------------------------------------------------------------- #
+#                            helpers / dependency                             #
+# --------------------------------------------------------------------------- #
 
-# --------------------------------------------------------------------------- #
-#                            Helpers / dependencies                           #
-# --------------------------------------------------------------------------- #
 
 def get_db_session() -> Generator[Session, None, None]:
     """
-    FastAPI dependency.
-    Использует scoped_session, чтобы одной и той же таске/треду вернуть один объект Session.
+    FastAPI / service dependency.
+    Returns a thread-local Session that is automatically closed.
     """
     db = ScopedSession()
     try:
@@ -58,15 +73,17 @@ def get_db_session() -> Generator[Session, None, None]:
 @contextmanager
 def session_context() -> Generator[Session, None, None]:
     """
-    Контекстный менеджер для скриптов/тестов.
-    Автоматически коммитит при выходе, рулбекает при ошибке.
+    Context-manager for CLI scripts / unit-tests that need manual control over commit.
     """
     db = ScopedSession()
     try:
         yield db
         db.commit()
-    except Exception:
+    except Exception:  # pragma: no cover
         db.rollback()
         raise
     finally:
         db.close()
+
+
+__all__: list[str] = ["Base", "engine", "SessionLocal", "ScopedSession", "get_db_session", "session_context"]
