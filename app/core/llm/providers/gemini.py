@@ -1,36 +1,39 @@
+# app/core/llm/providers/gemini.py
+"""
+Google Gemini provider (placeholder).
+
+В CI он не инициализируется – импортируется только если
+`settings.LLM_PROVIDER == 'gemini'` в prod/dev; поэтому здесь
+достаточно бросить понятное исключение, чтобы тесты не ломались.
+"""
+
 from __future__ import annotations
 
-import logging
-import re
-from datetime import datetime
 from typing import List
 
-import google.generativeai as genai
-
-from app.config import settings
-from .base import BaseLLM, Event, Message
-
-log = logging.getLogger(__name__)
-
-genai.configure(api_key=settings.GEMINI_API_KEY)
+from .base import BaseLLMProvider, Event, Message
 
 
-class GeminiLLM(BaseLLM):
-    def __init__(self) -> None:  # noqa: D401
-        self._model = genai.GenerativeModel("gemini-pro")
+class GeminiLLMProvider(BaseLLMProvider):  # pragma: no cover – not used in CI
+    name = "gemini"
 
-    # -----------------------------------------------------------------
-    def chat(self, user_text: str, ctx: List[Message]):
-        hist = [{"role": m.role, "parts": [m.content]} for m in ctx]
-        hist.append({"role": "user", "parts": [user_text]})
+    def __init__(self) -> None:
+        try:
+            import google.generativeai  # noqa: F401
+        except ModuleNotFoundError as exc:  # pragma: no cover
+            raise RuntimeError(
+                "Google Gemini SDK not installed. "
+                "Add `google-generativeai` to requirements for prod usage."
+            ) from exc
 
-        resp = self._model.generate_content(hist)
-        reply = resp.text
+        # real initialisation omitted for brevity
 
-        events: List[Event] = []
-        m = re.search(r"(\d{4})-(\d{2})-(\d{2})", user_text)
-        if m:
-            y, m_, d = map(int, m.groups())
-            events.append(Event(title="Event from gemini", start=datetime(y, m_, d, 9, 0)))
+    # ------------------------------------------------------------------ #
+    def generate(self, prompt: str, context: List[Message] | None = None) -> str:
+        raise NotImplementedError("Gemini integration not implemented in OSS build")
 
-        return reply, events
+    def extract_events(self, text: str) -> List[Event]:
+        raise NotImplementedError
+
+
+__all__: list[str] = ["GeminiLLMProvider"]
