@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.core.llm.message import Message
+from app.core.llm.message import Message, Event
 from .base import BaseLLMProvider
 
 
