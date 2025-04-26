@@ -1,14 +1,18 @@
+# app/core/calendar/base.py
+"""
+Abstract base and common types for calendar providers.
+"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TypedDict, Optional, List
 from datetime import datetime
-
-# --------------------------------------------------------------------------- #
-#                             Событие в календаре                             #
-# --------------------------------------------------------------------------- #
+from typing import TypedDict, List, Optional
 
 class CalendarEvent(TypedDict):
+    """
+    Общая Pydantic-подобная модель события календаря.
+    """
     id: str
     user_id: str
     title: str
@@ -17,13 +21,11 @@ class CalendarEvent(TypedDict):
     description: Optional[str]
     provider: str
 
-
-# --------------------------------------------------------------------------- #
-#                         Интерфейс провайдера календаря                      #
-# --------------------------------------------------------------------------- #
-
 class BaseCalendarProvider(ABC):
-    """Базовый интерфейс для всех календарных провайдеров."""
+    """
+    Абстрактный интерфейс провайдера календаря.
+    """
+
     name: str
 
     @abstractmethod
@@ -33,7 +35,10 @@ class BaseCalendarProvider(ABC):
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
     ) -> List[CalendarEvent]:
-        """Получить список событий пользователя в интервале."""
+        """
+        Вернуть события пользователя в заданном интервале.
+        Если start/end не заданы — вернуть всё.
+        """
         ...
 
     @abstractmethod
@@ -45,13 +50,14 @@ class BaseCalendarProvider(ABC):
         end: Optional[datetime] = None,
         description: Optional[str] = None,
     ) -> CalendarEvent:
-        """Создать новое событие."""
+        """
+        Создать событие и вернуть его.
+        """
         ...
 
     @abstractmethod
     def delete_event(self, event_id: str) -> None:
-        """Удалить событие по идентификатору."""
+        """
+        Удалить событие по ID.
+        """
         ...
-
-# Для удобства тестов: переэкспортируем функцию
-from app.core.calendar import get_calendar_provider  # noqa: F401
