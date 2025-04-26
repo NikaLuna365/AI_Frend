@@ -36,7 +36,6 @@ class Base(DeclarativeBase):
 # --------------------------------------------------------------------------- #
 #                            Engine & Session factory                         #
 # --------------------------------------------------------------------------- #
-
 def _make_engine():
     """Return SQLAlchemy Engine depending on ENVIRONMENT."""
     if settings.ENVIRONMENT == "test":
@@ -62,7 +61,10 @@ _engine = _make_engine()
 
 # Session factory. `scoped_session` provides thread / task-local instances.
 SessionLocal: sessionmaker[Session] = sessionmaker(
-    bind=_engine, autocommit=False, autoflush=False, future=True
+    bind=_engine,
+    autocommit=False,
+    autoflush=False,
+    future=True,
 )
 ScopedSession = scoped_session(SessionLocal)
 
