@@ -9,6 +9,8 @@ Google Gemini provider (placeholder).
 
 from __future__ import annotations
 
+from app.core.llm.message import Message, Event
+
 from typing import List
 
 from .base import BaseLLMProvider, Event, Message
