@@ -1,80 +1,163 @@
+# /docker-compose.yml (Новая версия)
+
+version: '3.8' # Указываем версию Compose для поддержки современных фич
+
+# ---------------------------------------------------------------------------
+# Сервисы Приложения AI-Friend
+# ---------------------------------------------------------------------------
+# Как работает конфигурация окружения:
+# 1. Docker Compose читает файл .env в корне проекта (если он есть).
+# 2. Переменная ENVIRONMENT из .env (или из хост-системы) используется
+#    для выбора соответствующего файла .env.${ENVIRONMENT} (например, .env.dev).
+# 3. Переменные из .env.${ENVIRONMENT} передаются в контейнеры через 'env_file'.
+# ---------------------------------------------------------------------------
+
 services:
+  # --- База Данных PostgreSQL ---
   db:
-    image: postgres:15
+    image: postgres:15-alpine # Используем alpine-версию для меньшего размера
+    container_name: aifriend-db # Явное имя контейнера
     environment:
+      # ВНИМАНИЕ: Эти учетные данные для ЛОКАЛЬНОЙ разработки.
+      # Они ДОЛЖНЫ совпадать с user:password в DATABASE_URL из .env.dev!
       POSTGRES_USER: ai_user
-      POSTGRES_PASSWORD: StrongPass
+      POSTGRES_PASSWORD: StrongPass # Используем пароль из исправленного .env.dev
       POSTGRES_DB: ai_drug
     volumes:
-      - db_data:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql/data # Named volume для персистентности данных БД
+    ports:
+      # Можно раскомментировать для прямого подключения к БД с хоста (e.g., DBeaver)
+      # - "5432:5432"
+      - "5433:5432" # Пример: Маппинг на другой порт хоста, чтобы избежать конфликтов
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ai_user -d ai_drug"]
+      # Проверяет, готова ли БД принимать подключения
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"] # Используем переменные
       interval: 10s
+      timeout: 5s
       retries: 5
-    restart: always
+      start_period: 10s # Даем время на старт перед первой проверкой
+    restart: unless-stopped # Перезапускать, если не остановлен вручную
 
+  # --- Redis (Брокер Celery / Кэш) ---
   redis:
-    image: redis:7
-    command: ["redis-server", "--save", "60", "1"]
+    image: redis:7-alpine # Alpine-версия
+    container_name: aifriend-redis
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"] # Настройка персистентности и логирования
     volumes:
-      - redis_data:/data
+      - redis_data:/data # Named volume для персистентности Redis
+    ports:
+      # Можно раскомментировать для прямого подключения к Redis с хоста
+      # - "6379:6379"
+      - "6380:6379" # Пример: Маппинг на другой порт хоста
     healthcheck:
+      # Проверяет, отвечает ли Redis на команду PING
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
+      timeout: 5s
       retries: 3
-    restart: always
+      start_period: 5s
+    restart: unless-stopped
 
+  # --- Веб-сервер FastAPI ---
   web:
+    container_name: aifriend-web
     build:
-      context: .
-      dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+      context: . # Собираем из корня проекта
+      dockerfile: Dockerfile # Используем общий Dockerfile
+    # Команда по умолчанию для запуска Uvicorn
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"] # Добавлен --reload для разработки
     volumes:
+      # Монтируем код приложения для live reload (благодаря --reload в command)
+      # В production монтировать код обычно не нужно, он копируется в образ.
       - .:/app
     ports:
-      - "8000:8000"
+      - "8000:8000" # Маппинг порта приложения на хост
     env_file:
+      # Загружаем переменные из файла .env.${ENVIRONMENT}
       - .env.${ENVIRONMENT}
     depends_on:
+      # Запускаем только после того, как БД и Redis станут здоровыми
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
+      # Проверяет, отвечает ли API на запрос к /healthz
+      # Убедитесь, что эндпоинт /healthz реализован в app/main.py
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
-    restart: always
+      start_period: 15s
+    restart: unless-stopped
+    # Для отладки можно переопределить команду, чтобы контейнер просто ждал:
+    # command: ["sleep", "infinity"]
+    # А затем подключиться: docker compose exec aifriend-web /bin/bash
 
+  # --- Celery Worker ---
   celery:
+    container_name: aifriend-celery
     build:
       context: .
       dockerfile: Dockerfile
+    # Команда для запуска воркера. Используйте --loglevel=debug для отладки.
     command: ["celery", "-A", "app.workers.tasks:celery_app", "worker", "--loglevel=info"]
+    # command: ["celery", "-A", "app.workers.tasks:celery_app", "worker", "--loglevel=debug"] # <-- Для отладки
     volumes:
-      - .:/app
+      - .:/app # Также монтируем код для консистентности с web
     env_file:
       - .env.${ENVIRONMENT}
     depends_on:
-      - db
-      - redis
-    restart: always
+      # Зависит от БД и Redis
+      db:
+        condition: service_healthy # Хотя воркер может стартовать и раньше, но для задач ему нужны будут БД/Redis
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # Для отладки:
+    # command: ["sleep", "infinity"]
+    # docker compose exec aifriend-celery /bin/bash
 
+  # --- Celery Beat (Планировщик) ---
   celery-beat:
+    container_name: aifriend-celery-beat
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["celery", "-A", "app.workers.tasks:celery_app", "beat", "--loglevel=info"]
+    # Команда для запуска планировщика. Используйте --loglevel=debug для отладки.
+    command: ["celery", "-A", "app.workers.tasks:celery_app", "beat", "--loglevel=info", "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"] # Пример использования DB шедулера, если нужно
+    # command: ["celery", "-A", "app.workers.tasks:celery_app", "beat", "--loglevel=info"] # Простой вариант без DB
+    # command: ["celery", "-A", "app.workers.tasks:celery_app", "beat", "--loglevel=debug"] # <-- Для отладки
     volumes:
       - .:/app
     env_file:
       - .env.${ENVIRONMENT}
     depends_on:
-      - db
-      - redis
-    restart: always
+      # Зависит от БД и Redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    # Для отладки:
+    # command: ["sleep", "infinity"]
+    # docker compose exec aifriend-celery-beat /bin/bash
 
+# ---------------------------------------------------------------------------
+# Named Volumes для Персистентности Данных
+# ---------------------------------------------------------------------------
 volumes:
   db_data:
+    driver: local # Явно указываем драйвер (по умолчанию)
   redis_data:
+    driver: local
+
+# ---------------------------------------------------------------------------
+# Заметки:
+# - Управление секретами: В production НЕ используйте env_file для секретов.
+#   Используйте Docker Secrets, HashiCorp Vault или переменные окружения CI/CD.
+# - Миграции БД: Перед первым запуском или после изменения моделей не забудьте
+#   применить миграции Alembic. Это можно сделать отдельной командой или
+#   добавить сервис для миграций в docker-compose.
+#   Пример: docker compose exec aifriend-web alembic upgrade head
+# ---------------------------------------------------------------------------
