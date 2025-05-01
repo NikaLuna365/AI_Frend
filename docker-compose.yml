@@ -1,6 +1,7 @@
-# /docker-compose.yml (Исправленная версия)
+# /docker-compose.yml (Версия с отдельным сервисом migrate)
 
-version: '3.8'
+# Убираем устаревшую директиву version
+# version: '3.8'
 
 services:
   # --- База Данных PostgreSQL ---
@@ -9,14 +10,12 @@ services:
     container_name: aifriend-db
     environment:
       POSTGRES_USER: ai_user
-      POSTGRES_PASSWORD: StrongPass # Убедитесь, что совпадает с .env.dev
+      POSTGRES_PASSWORD: StrongPass # Убедитесь, что совпадает с .env.dev/prod
       POSTGRES_DB: ai_drug
     volumes:
       - db_data:/var/lib/postgresql/data
-    # --- УДАЛЯЕМ ИЛИ КОММЕНТИРУЕМ СЕКЦИЮ ports ---
-    # ports:
-    #   - "5433:5432" # Эта строка вызывала конфликт
-    # ---------------------------------------------
+    # ports: # Оставляем закомментированным, если прямой доступ с хоста не нужен
+    #   - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
@@ -32,10 +31,8 @@ services:
     command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
     volumes:
       - redis_data:/data
-    # --- УДАЛЯЕМ ИЛИ КОММЕНТИРУЕМ СЕКЦИЮ ports ---
-    # ports:
-    #   - "6380:6379" # Эта строка тоже может вызвать конфликт
-    # ---------------------------------------------
+    # ports: # Оставляем закомментированным, если прямой доступ с хоста не нужен
+    #   - "6380:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -44,30 +41,56 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  # --- Сервис для Применения Миграций Alembic ---
+  migrate:
+    # Использует тот же образ, что и web/celery, т.к. нужен код и зависимости
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Команда, которая будет выполнена при запуске контейнера
+    command: ["alembic", "-c", "alembic.ini", "upgrade", "head"] # Явно указываем конфиг Alembic
+    env_file:
+      # Загружаем переменные (в основном DATABASE_URL)
+      # Использует тот же .env.${ENVIRONMENT}, что и другие сервисы
+      - .env.${ENVIRONMENT}
+    depends_on:
+      # Запускается только после того, как база данных будет готова
+      db:
+        condition: service_healthy
+    # Этот сервис не должен перезапускаться автоматически,
+    # он должен выполниться один раз (успешно или с ошибкой).
+    # restart: 'no' # или не указывать restart
+
   # --- Веб-сервер FastAPI ---
   web:
     container_name: aifriend-web
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    # Убрали --reload по умолчанию, чтобы не мешать потенциально exec/стабильности.
+    # Для разработки можно вернуть:
+    # command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     volumes:
+      # Оставляем монтирование для удобства разработки, но без --reload Uvicorn
+      # изменения в коде потребуют перезапуска контейнера web.
       - .:/app
     ports:
-      - "8000:8000" # Порт веб-сервера ОСТАВЛЯЕМ, он нужен для доступа извне
+      - "8000:8000"
     env_file:
       - .env.${ENVIRONMENT}
     depends_on:
-      db:
-        condition: service_healthy
+      # --- ВАЖНО: Запускаем web только ПОСЛЕ успешной миграции ---
+      migrate:
+        condition: service_completed_successfully # Ждем успешного завершения migrate
       redis:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
+    # healthcheck: # Оставляем закомментированным, пока разбираемся с exec/стабильностью
+    #   test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+    #   interval: 30s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 15s
     restart: unless-stopped
 
   # --- Celery Worker ---
@@ -76,14 +99,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["celery", "-A", "app.workers.tasks:celery_app", "worker", "--loglevel=debug"] # Оставляем debug пока
+    # Возвращаем loglevel=info по умолчанию
+    command: ["celery", "-A", "app.workers.tasks:celery_app", "worker", "--loglevel=info"]
     volumes:
       - .:/app
     env_file:
       - .env.${ENVIRONMENT}
     depends_on:
-      db:
-        condition: service_healthy
+      # --- ВАЖНО: Запускаем celery только ПОСЛЕ успешной миграции ---
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     restart: unless-stopped
@@ -94,14 +119,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["celery", "-A", "app.workers.tasks:celery_app", "beat", "--loglevel=debug"] # Оставляем debug пока
+    # Возвращаем loglevel=info по умолчанию
+    command: ["celery", "-A", "app.workers.tasks:celery_app", "beat", "--loglevel=info"]
     volumes:
       - .:/app
     env_file:
       - .env.${ENVIRONMENT}
     depends_on:
-      db:
-        condition: service_healthy
+      # --- ВАЖНО: Запускаем beat только ПОСЛЕ успешной миграции ---
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     restart: unless-stopped
