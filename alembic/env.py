@@ -1,12 +1,13 @@
-# /app/alembic/env.py - ИСПРАВЛЕННАЯ ВЕРСИЯ
+alembic/env.py - ИСПРАВЛЕННАЯ ВЕРСИЯ v2
 
 import asyncio
 from logging.config import fileConfig
 
 # Импортируем нужные функции из SQLAlchemy
 from sqlalchemy import pool
-from sqlalchemy import engine_from_config # Для синхронной работы в offline режиме
-from sqlalchemy.ext.asyncio import async_engine_from_config # Для online режима
+# Убираем engine_from_config, он не нужен для online-режима с явным URL
+# from sqlalchemy import engine_from_config
+from sqlalchemy.ext.asyncio import create_async_engine # Используем create_async_engine
 
 # Импортируем Alembic context
 from alembic import context
@@ -34,24 +35,14 @@ target_metadata = Base.metadata
 # my_important_option = config.get_main_option("my_important_option")
 
 def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
-
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well. By skipping the Engine creation
-    we don't even need a DBAPI to be available.
-
-    Calls to context.execute() here emit the given string to the
-    script output.
-    """
-    # Используем синхронный URL из alembic.ini
+    """Run migrations in 'offline' mode."""
+    # Читаем URL из alembic.ini
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        # compare_type=True может быть полезен для автогенерации специфичных типов
         compare_type=True,
     )
 
@@ -63,7 +54,6 @@ def do_run_migrations(connection) -> None:
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
-        # compare_type=True может быть полезен для автогенерации специфичных типов
         compare_type=True,
         )
 
@@ -71,22 +61,36 @@ def do_run_migrations(connection) -> None:
         context.run_migrations()
 
 async def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
+    """Run migrations in 'online' mode."""
 
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
-    """
-    # Создаем АСИНХРОННЫЙ движок из конфигурации alembic.ini
-    # ВНИМАНИЕ: Используем async_engine_from_config
-    connectable = async_engine_from_config(
-        # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
-        config.get_section(config.config_ini_section), # Используем правильное имя секции
-        # -------------------------
-        prefix="sqlalchemy.",
+    # --- ИСПРАВЛЕНИЕ ЗДЕСЬ ---
+    # Явно читаем URL из конфигурации alembic.ini по ключу 'sqlalchemy.url'
+    db_url = config.get_main_option("sqlalchemy.url")
+    if not db_url:
+        raise ValueError("Database URL is not configured in alembic.ini (sqlalchemy.url)")
+
+    # ВНИМАНИЕ: Alembic сам по себе работает синхронно, но для создания
+    # асинхронного connectable мы используем асинхронный URL,
+    # заменив синхронный драйвер на asyncpg.
+    # Если в alembic.ini указан синхронный URL (напр. postgresql://),
+    # нам нужно его адаптировать.
+    if db_url.startswith("postgresql://"):
+        async_db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    elif db_url.startswith("postgresql+psycopg2://"): # Обработаем и этот случай
+         async_db_url = db_url.replace("postgresql+psycopg2://", "postgresql+asyncpg://", 1)
+    elif db_url.startswith("postgresql+asyncpg://"):
+        async_db_url = db_url # Уже правильный формат
+    else:
+        # Поддерживаем только PostgreSQL сейчас
+        raise ValueError(f"Unsupported database URL scheme for async: {db_url}")
+
+    # Создаем АСИНХРОННЫЙ движок явно, используя URL
+    connectable = create_async_engine(
+        async_db_url,
         poolclass=pool.NullPool, # Не используем пул соединений для Alembic
     )
+    # -------------------------------------------------
 
-    # Подключаемся асинхронно
     async with connectable.connect() as connection:
         # Запускаем миграции синхронно внутри асинхронной транзакции
         await connection.run_sync(do_run_migrations)
@@ -94,9 +98,8 @@ async def run_migrations_online() -> None:
     # Освобождаем ресурсы движка
     await connectable.dispose()
 
-# Определяем режим и запускаем соответствующую функцию
+
 if context.is_offline_mode():
     run_migrations_offline()
 else:
-    # Запускаем асинхронную функцию run_migrations_online
     asyncio.run(run_migrations_online())
