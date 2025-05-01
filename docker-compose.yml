@@ -52,7 +52,7 @@ services:
       context: .
       dockerfile: Dockerfile
     # Команда для запуска миграций. -c указывает файл конфигурации.
-    command: ["alembic", "-c", "alembic.ini", "upgrade", "head"]
+    command: ["alembic", "-c", "/app/alembic.ini", "upgrade", "head"]
     env_file:
       # Загружаем переменные окружения (DATABASE_URL из него используется
       # ИЛИ переменные для интерполяции sqlalchemy.url в alembic.ini).
