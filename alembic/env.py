@@ -1,4 +1,4 @@
-alembic/env.py - ИСПРАВЛЕННАЯ ВЕРСИЯ v2
+# alembic/env.py - ИСПРАВЛЕННАЯ ВЕРСИЯ v2
 
 import asyncio
 from logging.config import fileConfig
