@@ -1,25 +1,32 @@
-# Dockerfile
+# /Dockerfile (Исправленная версия)
+
 FROM python:3.10-slim
 
-# ensure /app is our project root and in PYTHONPATH so "import app" works
+# Устанавливаем рабочую директорию и добавляем ее в PYTHONPATH
 ENV PYTHONPATH=/app
 WORKDIR /app
 
-# install system dependencies for psycopg2 and build tools
+# Устанавливаем системные зависимости:
+# - gcc, libpq-dev: для сборки некоторых Python пакетов (например, psycopg2)
+# - postgresql-client: для утилит вроде pg_isready (нужно для скрипта ожидания БД в migrate)
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       gcc \
       libpq-dev \
+      postgresql-client \
+ && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-# copy only requirements first to leverage Docker cache
+# Копируем только requirements.txt для кэширования зависимостей
 COPY requirements.txt .
 
-# install Python dependencies (including httpx)
+# Устанавливаем Python зависимости
+# Используем --no-cache-dir для уменьшения размера образа
 RUN pip install --no-cache-dir -r requirements.txt
 
-# copy the rest of the code
+# Копируем остальной код приложения
 COPY . .
 
-# your production entrypoint
+# Команда по умолчанию для запуска веб-сервера (используется сервисом 'web')
+# Сервисы 'migrate', 'celery', 'celery-beat' переопределяют эту команду в docker-compose.yml
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
