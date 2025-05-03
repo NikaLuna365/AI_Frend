@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import List, Sequence, Optional
 
+from app.db.base import Base
 from sqlalchemy import select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
