@@ -1,26 +1,31 @@
-# /app/app/core/users/models.py (ФИНАЛЬНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ v2)
+# /app/app/core/users/models.py (ФИНАЛЬНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ v3)
 
 from __future__ import annotations
 from datetime import datetime
-from typing import List, Optional, TYPE_CHECKING # Добавляем TYPE_CHECKING
+from typing import List, Optional, TYPE_CHECKING
 
-# --- ВАЖНО: ИМПОРТ ТИПОВ SQLAlchemy ---
+# --- ВАЖНО: Импортируем sqlalchemy как sa ---
+import sqlalchemy as sa # <--- ДОБАВЛЕН ИМПОРТ sqlalchemy as sa
+# ------------------------------------------
+
+# --- Импорты типов SQLAlchemy ---
 from sqlalchemy import (
     String,
     DateTime,
     ForeignKey,
     Integer,
     Text,
-    Boolean,        # Добавляем Boolean для is_active
-    LargeBinary     # Добавляем LargeBinary для шифрованных токенов
+    Boolean,
+    LargeBinary,
+    UniqueConstraint # Добавил UniqueConstraint для использования в __table_args__
 )
 # -------------------------------------
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
-# --- Импорт Base (уже должен быть) ---
-from app.db.base import Base
-# -----------------------------------
+# --- Импорт Base ---
+from app.db.base import Base # Убедитесь, что путь app.db.base верный
+# --------------------
 
 # Импорты для аннотаций типов связей
 if TYPE_CHECKING:
@@ -30,19 +35,22 @@ if TYPE_CHECKING:
 # --- Модель Пользователя ---
 class User(Base):
     __tablename__ = 'users'
+    # Опционально: Явно укажем schema, если она используется в Postgres
+    # __table_args__ = {'schema': 'public'} # Или ваша схема
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True, index=True) # OK
-    google_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True, nullable=True) # OK
-    email: Mapped[Optional[str]] = mapped_column(String(255), index=True, nullable=True) # OK
-    name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True) # OK
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default=sa.true()) # OK (Boolean импортирован)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False) # OK (DateTime импортирован)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False) # OK
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
+    google_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True, nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(String(255), index=True, nullable=True, unique=True) # Email тоже должен быть уникальным, если используется для поиска
+    name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    # Используем sa.true() для server_default
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default=sa.true()) # Теперь 'sa' определен
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     # Поля для токенов календаря
-    google_calendar_access_token_encrypted: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True) # OK (LargeBinary импортирован)
-    google_calendar_refresh_token_encrypted: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True) # OK
-    google_calendar_token_expiry: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True) # OK
+    google_calendar_access_token_encrypted: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    google_calendar_refresh_token_encrypted: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    google_calendar_token_expiry: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # --- Связи ---
     messages: Mapped[List["Message"]] = relationship(
@@ -52,7 +60,7 @@ class User(Base):
         lazy="selectin"
     )
     achievements: Mapped[List["Achievement"]] = relationship(
-        "app.core.achievements.models.Achievement", # Полный путь
+        "app.core.achievements.models.Achievement",
         back_populates="user",
         cascade="all, delete-orphan",
         lazy="selectin"
@@ -65,13 +73,12 @@ class User(Base):
 # --- Модель Сообщения ---
 class Message(Base):
     __tablename__ = 'messages'
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True) # OK (Integer импортирован)
-    user_id: Mapped[str] = mapped_column(String(64), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True) # OK (String, ForeignKey импортированы)
-    role: Mapped[str] = mapped_column(String(16), nullable=False) # OK
-    content: Mapped[str] = mapped_column(Text, nullable=False) # OK (Text импортирован)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False) # OK
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    # Связь с User
     user: Mapped["User"] = relationship("User", back_populates="messages")
 
     def __repr__(self) -> str: # pragma: no cover
