@@ -1,42 +1,38 @@
-# /app/app/core/users/models.py (Исправленная версия с импортом Base)
+# /app/app/core/users/models.py (Финальная Исправленная Версия)
 
 from __future__ import annotations
 from datetime import datetime
-from typing import List, Optional # Добавили Optional
+from typing import List, Optional
 
 from sqlalchemy import (
-     String, Text, DateTime, Integer, ForeignKey, UniqueConstraint, LargeBinary, Boolean # Добавили Boolean
+     String, Text, DateTime, Integer, ForeignKey, UniqueConstraint, LargeBinary, Boolean
 )
-# --- ИМПОРТЫ ДЛЯ ORM ---
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
-# --- ВАЖНО: ИМПОРТИРУЕМ Base ---
-# Путь зависит от того, где он определен. Стандартно - в app.db.base
-from app.db.base import Base # <--- ДОБАВЛЕН ИМПОРТ
+# --- ВАЖНО: ИСПРАВЛЕН ИМПОРТ Base ---
+# Импортируем Base из файла, где он определен (обычно app/db/base.py)
+from app.db.base import Base # <--- УБЕДИТЕСЬ, ЧТО ПУТЬ ВЕРНЫЙ
 # ---------------------------------
 
-# Импортируем типы из связанных модулей для аннотаций, но не сами классы
-# Используем строки для relationship, чтобы избежать циклических импортов
+# Импортируем типы из связанных модулей для аннотаций
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     # Путь к модели Achievement должен быть правильным
     from app.core.achievements.models import Achievement
 
 
-class User(Base): # Теперь 'Base' здесь определена
+class User(Base): # Теперь 'Base' определена
     __tablename__ = 'users'
 
     # Внутренний ID пользователя
     id: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
 
-    # --- Поля, связанные с Google Auth (оставляем для будущей Фазы 2, но nullable=True) ---
+    # Поля, связанные с Google Auth (оставляем для будущего, но nullable=True)
     google_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True, nullable=True, comment="Google User ID (sub)")
     email: Mapped[Optional[str]] = mapped_column(String(255), index=True, nullable=True, comment="User email (verified from Google)")
-    # ------------------------------------------------------------------------------------
 
     name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, comment="User display name")
-    # Добавим флаг активности (может пригодиться)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     # Поля для временных меток
@@ -50,18 +46,18 @@ class User(Base): # Теперь 'Base' здесь определена
 
     # --- Связи ---
     messages: Mapped[List["Message"]] = relationship(
-        "Message", # Можно без полного пути, если Message в этом же файле
+        "Message",
         back_populates="user",
         cascade="all, delete-orphan"
     )
     achievements: Mapped[List["Achievement"]] = relationship(
-        "app.core.achievements.models.Achievement", # Используем полный путь
-        back_populates="user", # Добавляем back_populates
+        "app.core.achievements.models.Achievement", # Полный путь
+        back_populates="user",
         cascade="all, delete-orphan"
     )
 
 
-class Message(Base): # Теперь 'Base' здесь определена
+class Message(Base): # 'Base' здесь тоже должна быть видна
     __tablename__ = 'messages'
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[str] = mapped_column(String(64), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
