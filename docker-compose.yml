@@ -1,6 +1,4 @@
-# /docker-compose.yml (Версия с автоматической миграцией при запуске)
-
-# version: '3.8' # Убрано как устаревшее
+# /docker-compose.yml (Версия 2025-05-03 - Проверены команды Celery)
 
 services:
   # --- База Данных PostgreSQL ---
@@ -13,10 +11,9 @@ services:
       POSTGRES_DB: ai_drug
     volumes:
       - db_data:/var/lib/postgresql/data
-    # ports: # Порт не пробрасываем
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -q"] # Добавлен флаг -q (quiet)
-      interval: 5s # Уменьшен интервал для более быстрой проверки
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -q"]
+      interval: 5s
       timeout: 3s
       retries: 5
       start_period: 10s
@@ -29,10 +26,9 @@ services:
     command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
     volumes:
       - redis_data:/data
-    # ports: # Порт не пробрасываем
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s # Уменьшен интервал
+      interval: 5s
       timeout: 3s
       retries: 3
       start_period: 5s
@@ -44,34 +40,26 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    # Используем sh -c для выполнения нескольких команд
     command: >
       sh -c "
         echo 'Migrate service started. Waiting for DB...' &&
-        # Цикл ожидания доступности БД (используем pg_isready)
         until pg_isready -h db -U ai_user -d ai_drug -q; do
           echo 'DB is unavailable - sleeping';
           sleep 1;
         done &&
         echo 'DB is ready!' &&
         echo 'Attempting to autogenerate migration (if models changed)...' &&
-        # Генерируем миграцию (создаст файл, если есть изменения)
         alembic -c /app/alembic.ini revision --autogenerate -m 'auto-generated changes' &&
         echo 'Applying migrations (upgrade head)...' &&
-        # Применяем ВСЕ миграции (включая только что сгенерированную, если она была)
         alembic -c /app/alembic.ini upgrade head &&
         echo 'Migrations finished successfully.'
       "
     env_file:
-      # Передаем окружение для доступа к DATABASE_URL ИЛИ переменным интерполяции
       - .env.${ENVIRONMENT}
     depends_on:
-      # Зависит от ЗАПУСКА DB, но не от healthcheck, т.к. сам проверяет готовность
       db:
-        condition: service_started # Достаточно, чтобы сервис db был запущен
-    # Этот сервис должен выполниться и завершиться.
-    # Если не указать restart, по умолчанию он 'no'.
-    # restart: 'no'
+        condition: service_started # Зависим только от старта БД
+    restart: 'no'
 
   # --- Веб-сервер FastAPI ---
   web:
@@ -79,7 +67,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"] # Без --reload
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     volumes:
       - .:/app
     ports:
@@ -87,12 +75,11 @@ services:
     env_file:
       - .env.${ENVIRONMENT}
     depends_on:
-      # Зависим от готовности БД и Redis. migrate выполнится до этого сам.
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
-    # healthcheck: # Пока закомментирован
+      # Не зависим явно от migrate, т.к. он должен отработать до старта БД healthcheck
     restart: unless-stopped
 
   # --- Celery Worker ---
@@ -101,17 +88,20 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    # --- ПРОВЕРЕННАЯ КОМАНДА ЗАПУСКА ---
+    # -A указывает путь к модулю:объекту приложения Celery
     command: ["celery", "-A", "app.workers.tasks:celery_app", "worker", "--loglevel=info"]
+    # ------------------------------------
     volumes:
       - .:/app
     env_file:
       - .env.${ENVIRONMENT}
     depends_on:
-      # Зависим от готовности БД и Redis
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # Не зависим явно от migrate
     restart: unless-stopped
 
   # --- Celery Beat (Планировщик) ---
@@ -120,17 +110,21 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    # --- ПРОВЕРЕННАЯ КОМАНДА ЗАПУСКА ---
+    # -A указывает путь к модулю:объекту приложения Celery
+    # --scheduler опционально, если нужен кастомный планировщик
     command: ["celery", "-A", "app.workers.tasks:celery_app", "beat", "--loglevel=info"]
+    # ------------------------------------
     volumes:
       - .:/app
     env_file:
       - .env.${ENVIRONMENT}
     depends_on:
-      # Зависим от готовности БД и Redis
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      # Не зависим явно от migrate
     restart: unless-stopped
 
 # --- Named Volumes ---
