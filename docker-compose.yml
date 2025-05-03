@@ -1,4 +1,4 @@
-# /docker-compose.yml (Версия 2025-05-01 - Убран маппинг портов db/redis)
+# /docker-compose.yml (Версия с автоматической миграцией при запуске)
 
 # version: '3.8' # Убрано как устаревшее
 
@@ -9,15 +9,15 @@ services:
     container_name: aifriend-db
     environment:
       POSTGRES_USER: ai_user
-      POSTGRES_PASSWORD: StrongPass # Убедитесь, что совпадает с .env.dev/prod и alembic.ini
+      POSTGRES_PASSWORD: StrongPass
       POSTGRES_DB: ai_drug
     volumes:
       - db_data:/var/lib/postgresql/data
-    # ports: # ПОРТЫ УБРАНЫ - прямой доступ с хоста не требуется для работы приложения
+    # ports: # Порт не пробрасываем
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -q"] # Добавлен флаг -q (quiet)
+      interval: 5s # Уменьшен интервал для более быстрой проверки
+      timeout: 3s
       retries: 5
       start_period: 10s
     restart: unless-stopped
@@ -29,30 +29,49 @@ services:
     command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
     volumes:
       - redis_data:/data
-    # ports: # ПОРТЫ УБРАНЫ - прямой доступ с хоста не требуется
+    # ports: # Порт не пробрасываем
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
+      interval: 5s # Уменьшен интервал
+      timeout: 3s
       retries: 3
       start_period: 5s
     restart: unless-stopped
 
-  # --- Сервис для Применения Миграций Alembic ---
+  # --- Сервис Миграции (Автоматический Запуск) ---
   migrate:
     container_name: aifriend-migrate
     build:
       context: .
       dockerfile: Dockerfile
-    # Команда для применения миграций при запуске через 'run' или 'up'
-    command: ["alembic", "-c", "/app/alembic.ini", "upgrade", "head"] # Используем абс. путь
+    # Используем sh -c для выполнения нескольких команд
+    command: >
+      sh -c "
+        echo 'Migrate service started. Waiting for DB...' &&
+        # Цикл ожидания доступности БД (используем pg_isready)
+        until pg_isready -h db -U ai_user -d ai_drug -q; do
+          echo 'DB is unavailable - sleeping';
+          sleep 1;
+        done &&
+        echo 'DB is ready!' &&
+        echo 'Attempting to autogenerate migration (if models changed)...' &&
+        # Генерируем миграцию (создаст файл, если есть изменения)
+        alembic -c /app/alembic.ini revision --autogenerate -m 'auto-generated changes' &&
+        echo 'Applying migrations (upgrade head)...' &&
+        # Применяем ВСЕ миграции (включая только что сгенерированную, если она была)
+        alembic -c /app/alembic.ini upgrade head &&
+        echo 'Migrations finished successfully.'
+      "
     env_file:
-      # Передаем окружение для доступа к DATABASE_URL ИЛИ переменным для интерполяции
+      # Передаем окружение для доступа к DATABASE_URL ИЛИ переменным интерполяции
       - .env.${ENVIRONMENT}
     depends_on:
+      # Зависит от ЗАПУСКА DB, но не от healthcheck, т.к. сам проверяет готовность
       db:
-        condition: service_healthy # Ждем готовности БД
-    restart: 'no' # Не перезапускаем этот сервис
+        condition: service_started # Достаточно, чтобы сервис db был запущен
+    # Этот сервис должен выполниться и завершиться.
+    # Если не указать restart, по умолчанию он 'no'.
+    # restart: 'no'
 
   # --- Веб-сервер FastAPI ---
   web:
@@ -64,16 +83,14 @@ services:
     volumes:
       - .:/app
     ports:
-      - "8000:8000" # Открываем порт API наружу
+      - "8000:8000"
     env_file:
       - .env.${ENVIRONMENT}
     depends_on:
-      # Запускаем ПОСЛЕ успешного завершения migrate и старта Redis/DB
-      migrate:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
+      # Зависим от готовности БД и Redis. migrate выполнится до этого сам.
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     # healthcheck: # Пока закомментирован
     restart: unless-stopped
@@ -90,12 +107,10 @@ services:
     env_file:
       - .env.${ENVIRONMENT}
     depends_on:
-      # Запускаем ПОСЛЕ успешного завершения migrate и старта Redis/DB
-      migrate:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
+      # Зависим от готовности БД и Redis
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 
@@ -111,12 +126,10 @@ services:
     env_file:
       - .env.${ENVIRONMENT}
     depends_on:
-      # Запускаем ПОСЛЕ успешного завершения migrate и старта Redis/DB
-      migrate:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
+      # Зависим от готовности БД и Redis
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
 
