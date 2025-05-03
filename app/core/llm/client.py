@@ -1,8 +1,9 @@
-# app/core/llm/client.py
-from __future__ import annotations # Для использования типов до их объявления
+# /app/app/core/llm/client.py (Подтвержденная Версия)
+
+from __future__ import annotations
 
 import logging
-from typing import List, Sequence # Используем typing для совместимости
+from typing import List, Sequence
 
 # Импортируем базовые схемы/типы
 from .message import Message, Event
@@ -16,17 +17,17 @@ log = logging.getLogger(__name__)
 class LLMClient:
     """
     Асинхронный универсальный клиент для работы с LLM-провайдерами.
-    Делегирует операции generate/extract_events конкретной асинхронной реализации.
+    Делегирует операции конкретной асинхронной реализации,
+    полученной через фабрику get_llm_provider().
     """
     def __init__(self):
         """
-        Инициализирует клиент, получая провайдера через асинхронную фабрику.
-        Примечание: Сама фабрика get_llm_provider пока может быть синхронной,
-                  но она должна возвращать провайдера с async методами.
+        Инициализирует клиент, получая единственный экземпляр
+        провайдера через фабрику.
         """
-        # Фабрика вернет провайдера ('stub', 'gemini', etc.)
+        # Фабрика вернет закэшированный экземпляр провайдера ('stub', 'gemini', etc.)
         self.provider: BaseLLMProvider = get_llm_provider()
-        log.info("LLMClient initialized with provider: %s", self.provider.name)
+        log.info("LLMClient using provider: %s", self.provider.name)
 
     async def generate(self, prompt: str, context: Sequence[Message]) -> str:
         """
@@ -34,40 +35,32 @@ class LLMClient:
 
         Args:
             prompt (str): Основной запрос пользователя.
-            context (Sequence[Message]): История диалога (список TypedDict).
+            context (Sequence[Message]): История диалога.
 
         Returns:
             str: Сгенерированный текстовый ответ.
         """
-        log.debug(
-            "LLMClient generating response via %s provider for prompt: %.50s...",
-            self.provider.name, prompt
-        )
-        # Делегируем вызов асинхронному методу провайдера
+        log.debug("LLMClient: Calling provider.generate...")
         response = await self.provider.generate(prompt, context)
-        log.debug("LLMClient received response: %.50s...", response)
+        log.debug("LLMClient: Provider.generate returned.")
         return response
 
     async def extract_events(self, text: str) -> List[Event]:
         """
-        Асинхронно извлекает из текста список событий (даты+описания).
+        Асинхронно извлекает из текста список событий.
+        (В текущем MVP провайдер Gemini возвращает пустой список).
 
         Args:
             text (str): Текст для анализа.
 
         Returns:
-            List[Event]: Список извлеченных событий (TypedDict).
+            List[Event]: Список извлеченных событий.
         """
-        log.debug(
-            "LLMClient extracting events via %s provider from text: %.50s...",
-            self.provider.name, text
-        )
-        # Делегируем вызов асинхронному методу провайдера
+        log.debug("LLMClient: Calling provider.extract_events...")
         events = await self.provider.extract_events(text)
-        log.debug("LLMClient extracted %d events.", len(events))
+        log.debug("LLMClient: Provider.extract_events returned %d events.", len(events))
         return events
 
-    # Можно добавить другие методы, например, для генерации названий ачивок
     async def generate_achievement_name(
         self,
         context: str,
@@ -89,23 +82,17 @@ class LLMClient:
 
         Raises:
             NotImplementedError: Если метод не реализован в провайдере.
+            Exception: При ошибках API.
         """
-        log.debug("LLMClient generating achievement name via %s provider...", self.provider.name)
-        # Проверяем, есть ли у провайдера такой метод
+        log.debug("LLMClient: Calling provider.generate_achievement_name...")
         if not hasattr(self.provider, 'generate_achievement_name'):
-             raise NotImplementedError(
-                 f"Provider '{self.provider.name}' does not support 'generate_achievement_name'"
-             )
+             raise NotImplementedError(f"Provider '{self.provider.name}' does not support 'generate_achievement_name'") # pragma: no cover
         names = await self.provider.generate_achievement_name(
-            context=context,
-            style_id=style_id,
-            tone_hint=tone_hint,
-            style_examples=style_examples
+            context=context, style_id=style_id, tone_hint=tone_hint, style_examples=style_examples
         )
-        log.debug("LLMClient received %d achievement names.", len(names))
+        log.debug("LLMClient: Provider.generate_achievement_name returned %d names.", len(names))
         return names
 
-    # Аналогично можно добавить метод для генерации иконок, если это делает LLM
     async def generate_achievement_icon(
         self,
         context: str,
@@ -113,9 +100,9 @@ class LLMClient:
         style_keywords: str,
         palette_hint: str,
         shape_hint: str
-        ) -> bytes: # Возвращаем байты PNG изображения
+        ) -> bytes:
         """
-        Асинхронно генерирует иконку для ачивки (например, через Imagen).
+        Асинхронно генерирует иконку для ачивки.
 
         Args:
             context (str): Описание ачивки.
@@ -129,23 +116,16 @@ class LLMClient:
 
         Raises:
             NotImplementedError: Если метод не реализован в провайдере.
+            Exception: При ошибках API.
         """
-        log.debug("LLMClient generating achievement icon via %s provider...", self.provider.name)
+        log.debug("LLMClient: Calling provider.generate_achievement_icon...")
         if not hasattr(self.provider, 'generate_achievement_icon'):
-            raise NotImplementedError(
-                f"Provider '{self.provider.name}' does not support 'generate_achievement_icon'"
-            )
+            raise NotImplementedError(f"Provider '{self.provider.name}' does not support 'generate_achievement_icon'") # pragma: no cover
         icon_bytes = await self.provider.generate_achievement_icon(
-             context=context,
-             style_id=style_id,
-             style_keywords=style_keywords,
-             palette_hint=palette_hint,
-             shape_hint=shape_hint
+             context=context, style_id=style_id, style_keywords=style_keywords, palette_hint=palette_hint, shape_hint=shape_hint
          )
-        log.debug("LLMClient received achievement icon (%d bytes).", len(icon_bytes) if icon_bytes else 0)
+        log.debug("LLMClient: Provider.generate_achievement_icon returned icon.")
         return icon_bytes
 
-
-# Оставляем старые экспорты для совместимости, если нужно, но лучше их убрать позже
-# __all__ = ("LLMClient", "Message", "Event")
-__all__ = ("LLMClient",) # Экспортируем только клиент
+# Экспортируем только клиент
+__all__ = ("LLMClient",)
