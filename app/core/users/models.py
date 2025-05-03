@@ -2,6 +2,7 @@
 # ... (импорты datetime, List, Optional, SQLAlchemy типы, Base) ...
 from sqlalchemy.orm import Mapped, mapped_column, relationship # Убедимся, что relationship импортирован
 from sqlalchemy.sql import func
+from app.db.base import Base
 
 # Импортируем типы из связанных модулей для аннотаций, но не сами классы напрямую в глобальную область
 # Используем строки для relationship, чтобы избежать циклических импортов
