@@ -1,4 +1,4 @@
-# /app/app/core/users/models.py (Финальная Исправленная Версия)
+# /app/app/core/users/models.py (Финальная ВЕРНАЯ Версия)
 
 from __future__ import annotations
 from datetime import datetime
@@ -11,35 +11,33 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 # --- ВАЖНО: ИСПРАВЛЕН ИМПОРТ Base ---
-# Импортируем Base из файла, где он определен (обычно app/db/base.py)
-from app.db.base import Base # <--- УБЕДИТЕСЬ, ЧТО ПУТЬ ВЕРНЫЙ
+# Base определяется в /app/app/db/base.py, поэтому импортируем оттуда
+from app.db.base import Base # <--- ПРОВЕРЬТЕ ЭТОТ ПУТЬ!
 # ---------------------------------
 
-# Импортируем типы из связанных модулей для аннотаций
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    # Путь к модели Achievement должен быть правильным
     from app.core.achievements.models import Achievement
 
 
-class User(Base): # Теперь 'Base' определена
+class User(Base): # 'Base' должна быть определена этим импортом
     __tablename__ = 'users'
 
     # Внутренний ID пользователя
     id: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
 
-    # Поля, связанные с Google Auth (оставляем для будущего, но nullable=True)
+    # Поля, связанные с Google Auth (nullable=True для MVP)
     google_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True, nullable=True, comment="Google User ID (sub)")
     email: Mapped[Optional[str]] = mapped_column(String(255), index=True, nullable=True, comment="User email (verified from Google)")
 
     name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, comment="User display name")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
-    # Поля для временных меток
+    # Временные метки
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    # Поля для токенов календаря (оставляем для будущего, nullable=True)
+    # Поля для токенов календаря (nullable=True для MVP)
     google_calendar_access_token_encrypted: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     google_calendar_refresh_token_encrypted: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     google_calendar_token_expiry: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -57,7 +55,7 @@ class User(Base): # Теперь 'Base' определена
     )
 
 
-class Message(Base): # 'Base' здесь тоже должна быть видна
+class Message(Base): # 'Base' должна быть определена этим импортом
     __tablename__ = 'messages'
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[str] = mapped_column(String(64), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -65,5 +63,4 @@ class Message(Base): # 'Base' здесь тоже должна быть видн
     content: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    # Связь с User
     user: Mapped["User"] = relationship("User", back_populates="messages")
