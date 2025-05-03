@@ -1,6 +1,7 @@
 # /app/app/core/users/models.py (ФИНАЛЬНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ)
 
 from __future__ import annotations
+from app.db.base import Base
 from datetime import datetime
 # Используем стандартные типы Python 3.9+ для аннотаций
 from typing import List, Optional
