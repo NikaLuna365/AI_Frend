@@ -1,21 +1,19 @@
-# /docker-compose.yml (Версия с открытым портом DB для генерации миграций на хосте)
+# /docker-compose.yml (Версия 2025-05-01 - Убран маппинг портов db/redis)
 
 # version: '3.8' # Убрано как устаревшее
 
 services:
+  # --- База Данных PostgreSQL ---
   db:
     image: postgres:15-alpine
     container_name: aifriend-db
     environment:
       POSTGRES_USER: ai_user
-      POSTGRES_PASSWORD: StrongPass
+      POSTGRES_PASSWORD: StrongPass # Убедитесь, что совпадает с .env.dev/prod и alembic.ini
       POSTGRES_DB: ai_drug
     volumes:
       - db_data:/var/lib/postgresql/data
-    # --- ВАЖНО: Открываем порт БД на хост ---
-    ports:
-      - "5432:5432" # Маппим порт 5432 контейнера на 5432 хоста
-    # -----------------------------------------
+    # ports: # ПОРТЫ УБРАНЫ - прямой доступ с хоста не требуется для работы приложения
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
@@ -24,14 +22,14 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # --- Redis (Брокер Celery / Кэш) ---
   redis:
     image: redis:7-alpine
     container_name: aifriend-redis
     command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
     volumes:
       - redis_data:/data
-    # ports: # Не открываем порт Redis, если не нужен доступ с хоста
-    #   - "6380:6379"
+    # ports: # ПОРТЫ УБРАНЫ - прямой доступ с хоста не требуется
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -40,44 +38,47 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  # --- Сервис для Применения Миграций Alembic ---
   migrate:
     container_name: aifriend-migrate
     build:
       context: .
       dockerfile: Dockerfile
-    # Эта команда будет использоваться для ПРИМЕНЕНИЯ миграций
-    command: ["alembic", "-c", "alembic.ini", "upgrade", "head"]
+    # Команда для применения миграций при запуске через 'run' или 'up'
+    command: ["alembic", "-c", "/app/alembic.ini", "upgrade", "head"] # Используем абс. путь
     env_file:
-      - .env.${ENVIRONMENT} # Передаем окружение
+      # Передаем окружение для доступа к DATABASE_URL ИЛИ переменным для интерполяции
+      - .env.${ENVIRONMENT}
     depends_on:
       db:
-        condition: service_healthy
-    restart: 'no'
+        condition: service_healthy # Ждем готовности БД
+    restart: 'no' # Не перезапускаем этот сервис
 
+  # --- Веб-сервер FastAPI ---
   web:
     container_name: aifriend-web
     build:
       context: .
       dockerfile: Dockerfile
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"] # Убрали --reload
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"] # Без --reload
     volumes:
       - .:/app
     ports:
-      - "8000:8000"
+      - "8000:8000" # Открываем порт API наружу
     env_file:
       - .env.${ENVIRONMENT}
     depends_on:
-      # Зависим от УСПЕШНОГО ЗАВЕРШЕНИЯ migrate, если будем запускать его через 'up'
-      # migrate:
-      #   condition: service_completed_successfully
-      # Но т.к. migrate будем запускать через 'run', web должен зависеть от db
-      db:
-        condition: service_healthy
+      # Запускаем ПОСЛЕ успешного завершения migrate и старта Redis/DB
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
-    # healthcheck: # Оставляем закомментированным
+      db:
+        condition: service_healthy
+    # healthcheck: # Пока закомментирован
     restart: unless-stopped
 
+  # --- Celery Worker ---
   celery:
     container_name: aifriend-celery
     build:
@@ -89,14 +90,16 @@ services:
     env_file:
       - .env.${ENVIRONMENT}
     depends_on:
-      # migrate: # Зависимость от migrate убираем, т.к. он запускается отдельно
-      #   condition: service_completed_successfully
-      db:
-        condition: service_healthy
+      # Запускаем ПОСЛЕ успешного завершения migrate и старта Redis/DB
+      migrate:
+        condition: service_completed_successfully
       redis:
+        condition: service_healthy
+      db:
         condition: service_healthy
     restart: unless-stopped
 
+  # --- Celery Beat (Планировщик) ---
   celery-beat:
     container_name: aifriend-celery-beat
     build:
@@ -108,14 +111,16 @@ services:
     env_file:
       - .env.${ENVIRONMENT}
     depends_on:
-      # migrate: # Зависимость от migrate убираем
-      #   condition: service_completed_successfully
-      db:
-        condition: service_healthy
+      # Запускаем ПОСЛЕ успешного завершения migrate и старта Redis/DB
+      migrate:
+        condition: service_completed_successfully
       redis:
+        condition: service_healthy
+      db:
         condition: service_healthy
     restart: unless-stopped
 
+# --- Named Volumes ---
 volumes:
   db_data:
     driver: local
