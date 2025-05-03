@@ -1,6 +1,6 @@
-# app/api/v1/auth.py
+# /app/app/api/v1/auth.py (Версия с тестовым логином)
 
-from __future__ import annotations # Обязательно
+from __future__ import annotations
 
 import logging
 
@@ -8,75 +8,79 @@ from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Импорты для аутентификации
+# Token - для ответа, TestLoginRequest - для запроса
 from app.core.auth.schemas import Token, TestLoginRequest
+# Функция для создания JWT
 from app.core.auth.security import create_access_token
-# Импорт сервиса пользователей для ensure_user
+# Сервис пользователей для создания/поиска пользователя
 from app.core.users.service import UsersService
-# Импорт зависимости для сессии БД
+# Асинхронная сессия БД
 from app.db.base import get_async_db_session
 
-# Создаем новый роутер для аутентификации
+# Создаем роутер
 router = APIRouter(prefix="/v1/auth", tags=["Authentication"])
 log = logging.getLogger(__name__)
 
 @router.post(
     "/login/test",
     response_model=Token,
-    summary="[Development Only] Get JWT for a user",
+    summary="[Development Only] Get JWT for a user ID",
     description=(
-        "**WARNING:** This endpoint is for development and testing purposes only. "
-        "It allows obtaining a JWT for any user ID without actual authentication. "
-        "**DO NOT EXPOSE IN PRODUCTION!**"
+        "**WARNING:** Use only for development/testing. "
+        "Creates a user (if doesn't exist) and returns a JWT token "
+        "for the given internal `user_id`."
+        "\n\n**DO NOT EXPOSE IN PRODUCTION!**"
     )
 )
 async def test_login_for_access_token(
-    # Используем Body(...) для явного указания, что данные берем из тела запроса
+    # Получаем user_id из тела запроса
     login_data: TestLoginRequest = Body(...),
+    # Получаем асинхронную сессию БД через зависимость
     db: AsyncSession = Depends(get_async_db_session)
 ) -> Token:
     """
-    Временный эндпоинт для получения JWT токена по user_id.
-    Предназначен **только для разработки и тестирования**.
-
-    Принимает `user_id`, проверяет/создает пользователя в БД и возвращает
-    валидный JWT `access_token`.
+    Генерирует JWT для тестового входа по внутреннему user_id.
 
     Args:
-        login_data (TestLoginRequest): Данные с `user_id`.
+        login_data (TestLoginRequest): Тело запроса с `user_id`.
         db (AsyncSession): Зависимость сессии БД.
 
     Returns:
-        Token: Объект с `access_token` и `token_type`.
+        Token: Объект с `access_token`.
+
+    Raises:
+        HTTPException: 500, если произошла ошибка при работе с БД.
     """
     user_id = login_data.user_id
     log.warning(
-        "Executing TEST login for user_id: %s. Ensure this is not a production environment!",
+        "Executing TEST login for user_id: %s. Ensure this is NOT production!",
         user_id
     )
 
+    # Инициализируем сервис с текущей сессией
     user_service = UsersService(db)
     try:
         # Убедимся, что пользователь существует или будет создан
-        user = await user_service.ensure_user(user_id)
-        # Коммит здесь не нужен, т.к. ensure_user делает flush, а get_async_db_session
-        # управляет транзакцией (хотя для тестового эндпоинта можно было бы и коммитить)
-        log.info("User ensured for test login: %r", user)
+        # Используем get_or_create_user из обновленного UsersService
+        user = await user_service.get_or_create_user(user_id)
+        log.info("User ensured for test login: id=%s", user.id)
+        # Коммит транзакции произойдет автоматически при выходе из get_async_db_session
 
     except Exception as e:
-        # Ловим возможные ошибки БД при создании пользователя
         log.exception("Failed to ensure user during test login for user_id: %s", user_id)
+        # Откат произойдет автоматически в get_async_db_session
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Database error while ensuring user: {e}"
+            detail=f"Database error while ensuring user: {type(e).__name__}"
         ) from e
 
-    # Генерируем токен для найденного/созданного пользователя
-    access_token = create_access_token(data={"user_id": user.id}) # Используем user.id из ORM
+    # Генерируем JWT токен для этого пользователя
+    # В payload передаем наш внутренний user_id
+    access_token = create_access_token(data={"user_id": user.id})
 
+    log.info("Generated test JWT for user_id: %s", user.id)
     return Token(access_token=access_token, token_type="bearer")
 
-# --- Место для будущих эндпоинтов ---
-# Например:
+# --- Место для будущих эндпоинтов (Google Callback и т.д.) ---
 # @router.post("/google/callback") ...
-# @router.post("/google/calendar/callback") ...
-# ------------------------------------
+# -----------------------------------------------------------
