@@ -1,113 +1,42 @@
-"""
-ORM-модели, описывающие правила и сами достижения.
-
-⏰  Главная правка:
-    •  `code` снова является **первичным ключом** для таблицы
-       `achievement_rules`. Это убирает конфликт повторного
-       объявления, который ломал pytest:
-
-       sqlalchemy.exc.ArgumentError:
-         Trying to redefine primary-key column 'code' …
-
-    •  Поле `id` нам не нужно – его убрали; если когда-нибудь
-       понадобится числовой surrogate-key, миграция добавит
-       его корректно через Alembic.
-
-Всё остальное (FK из `Achievement`, каскады, repr) оставлено
-как в предыдущей ревизии.
-"""
-
-from __future__ import annotations
-
-from datetime import datetime
-from typing import List
-
+# /app/app/core/achievements/models.py (или аналогичный)
+# ... (импорты datetime, List, Optional, SQLAlchemy типы, Base) ...
 from sqlalchemy import (
-    DateTime,
-    ForeignKey,
-    String,
-    UniqueConstraint,
+    DateTime, ForeignKey, Integer, String, UniqueConstraint, Text # Добавил Text на всякий
 )
-from sqlalchemy.orm import (
-    Mapped,
-    mapped_column,
-    relationship,
-)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.sql import func
 
-from app.db.base import Base
+# Импортируем типы из связанных модулей для аннотаций
+from typing import TYPE_CHECKING, Optional, Sequence, Union # Добавил импорты
+if TYPE_CHECKING:
+    from app.core.users.models import User # Только для type hinting
 
-# --------------------------------------------------------------------------- #
-#                                 AchievementRule                             #
-# --------------------------------------------------------------------------- #
-
-
-class AchievementRule(Base):  # type: ignore[pycodestyle]
+class AchievementRule(Base):
     __tablename__ = "achievement_rules"
-    # если в MetaData уже есть такая таблица (из прежнего импорта в тестах) –
-    # перезаписываем определение, но не пытаемся менять ее структуру
-    __table_args__ = {"extend_existing": True}
-
-    # ──────────────────────── columns ────────────────────────
-    code: Mapped[str] = mapped_column(
-        String(64),
-        primary_key=True,
-        comment="Уникальный машинный код ачивки",
-        index=True,
-    )
+    code: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
     title: Mapped[str] = mapped_column(String(128), nullable=False)
-    description: Mapped[str | None] = mapped_column(String(256))
-    icon_url: Mapped[str | None] = mapped_column(String(256))
+    description: Mapped[Optional[str]] = mapped_column(String(256))
+    # Добавим поле для хранения описания/контекста для генерации
+    generation_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="Context/theme for LLM generation")
 
-    # ──────────────────────── relationships ────────────────────────
-    achievements: Mapped[List["Achievement"]] = relationship(
-        back_populates="rule",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
+    # Связь один-ко-многим с полученными ачивками
+    achievements: Mapped[List["Achievement"]] = relationship(back_populates="rule")
 
-    # -----------------------------------------------------------------------
-
-    def __repr__(self) -> str:  # pragma: no cover
-        return f"<AchievementRule {self.code!r}>"
-
-
-# --------------------------------------------------------------------------- #
-#                                   Achievement                              #
-# --------------------------------------------------------------------------- #
-
-
-class Achievement(Base):  # type: ignore[pycodestyle]
+class Achievement(Base):
     __tablename__ = "achievements"
-    __table_args__ = (
-        UniqueConstraint("user_id", "code", name="uq_user_code"),
-        {"extend_existing": True},
+    __table_args__ = (UniqueConstraint('user_id', 'code', name='uq_achievement_user_code'),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    # --- ИСПРАВЛЕНИЕ ЗДЕСЬ: Полный путь в ForeignKey и back_populates ---
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    user: Mapped["User"] = relationship(
+        "app.core.users.models.User", # <-- Полный путь
+        back_populates="achievements"
     )
+    # -----------------------------------------------------------------
+    code: Mapped[str] = mapped_column(String(64), ForeignKey('achievement_rules.code', ondelete='CASCADE'), nullable=False, index=True)
+    rule: Mapped["AchievementRule"] = relationship(back_populates="achievements") # Связь с правилом
 
-    # ──────────────────────── columns ────────────────────────
-    id: Mapped[int] = mapped_column(
-        primary_key=True, autoincrement=True, comment="Surrogate-key"
-    )
-    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    code: Mapped[str] = mapped_column(
-        String(64),
-        ForeignKey("achievement_rules.code", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        default=datetime.utcnow,
-        nullable=False,
-    )
-
-    # «денормализованные» поля, чтобы не делать join при выборке
-    title: Mapped[str] = mapped_column(String(128), nullable=False)
-    icon_url: Mapped[str | None] = mapped_column(String(256))
-
-    # ──────────────────────── relationships ────────────────────────
-    rule: Mapped[AchievementRule] = relationship(back_populates="achievements")
-
-    # -----------------------------------------------------------------------
-
-    def __repr__(self) -> str:  # pragma: no cover
-        return f"<Achievement {self.user_id}:{self.code}>"
+    title: Mapped[str] = mapped_column(String(128), nullable=False, comment="Generated title")
+    badge_svg_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True, comment="URL to the generated SVG badge")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
