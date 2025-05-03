@@ -1,42 +1,73 @@
-# /app/app/core/achievements/models.py (или аналогичный)
-# ... (импорты datetime, List, Optional, SQLAlchemy типы, Base) ...
+# /app/app/core/users/models.py (Исправленная версия с импортом Base)
+
+from __future__ import annotations
+from datetime import datetime
+from typing import List, Optional # Добавили Optional
+
 from sqlalchemy import (
-    DateTime, ForeignKey, Integer, String, UniqueConstraint, Text # Добавил Text на всякий
+     String, Text, DateTime, Integer, ForeignKey, UniqueConstraint, LargeBinary, Boolean # Добавили Boolean
 )
+# --- ИМПОРТЫ ДЛЯ ORM ---
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
-# Импортируем типы из связанных модулей для аннотаций
-from typing import TYPE_CHECKING, Optional, Sequence, Union # Добавил импорты
+# --- ВАЖНО: ИМПОРТИРУЕМ Base ---
+# Путь зависит от того, где он определен. Стандартно - в app.db.base
+from app.db.base import Base # <--- ДОБАВЛЕН ИМПОРТ
+# ---------------------------------
+
+# Импортируем типы из связанных модулей для аннотаций, но не сами классы
+# Используем строки для relationship, чтобы избежать циклических импортов
+from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from app.core.users.models import User # Только для type hinting
+    # Путь к модели Achievement должен быть правильным
+    from app.core.achievements.models import Achievement
 
-class AchievementRule(Base):
-    __tablename__ = "achievement_rules"
-    code: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
-    title: Mapped[str] = mapped_column(String(128), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(String(256))
-    # Добавим поле для хранения описания/контекста для генерации
-    generation_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="Context/theme for LLM generation")
 
-    # Связь один-ко-многим с полученными ачивками
-    achievements: Mapped[List["Achievement"]] = relationship(back_populates="rule")
+class User(Base): # Теперь 'Base' здесь определена
+    __tablename__ = 'users'
 
-class Achievement(Base):
-    __tablename__ = "achievements"
-    __table_args__ = (UniqueConstraint('user_id', 'code', name='uq_achievement_user_code'),)
+    # Внутренний ID пользователя
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    # --- ИСПРАВЛЕНИЕ ЗДЕСЬ: Полный путь в ForeignKey и back_populates ---
-    user_id: Mapped[str] = mapped_column(String(64), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
-    user: Mapped["User"] = relationship(
-        "app.core.users.models.User", # <-- Полный путь
-        back_populates="achievements"
-    )
-    # -----------------------------------------------------------------
-    code: Mapped[str] = mapped_column(String(64), ForeignKey('achievement_rules.code', ondelete='CASCADE'), nullable=False, index=True)
-    rule: Mapped["AchievementRule"] = relationship(back_populates="achievements") # Связь с правилом
+    # --- Поля, связанные с Google Auth (оставляем для будущей Фазы 2, но nullable=True) ---
+    google_id: Mapped[Optional[str]] = mapped_column(String(255), unique=True, index=True, nullable=True, comment="Google User ID (sub)")
+    email: Mapped[Optional[str]] = mapped_column(String(255), index=True, nullable=True, comment="User email (verified from Google)")
+    # ------------------------------------------------------------------------------------
 
-    title: Mapped[str] = mapped_column(String(128), nullable=False, comment="Generated title")
-    badge_svg_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True, comment="URL to the generated SVG badge")
+    name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, comment="User display name")
+    # Добавим флаг активности (может пригодиться)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    # Поля для временных меток
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Поля для токенов календаря (оставляем для будущего, nullable=True)
+    google_calendar_access_token_encrypted: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    google_calendar_refresh_token_encrypted: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    google_calendar_token_expiry: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # --- Связи ---
+    messages: Mapped[List["Message"]] = relationship(
+        "Message", # Можно без полного пути, если Message в этом же файле
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    achievements: Mapped[List["Achievement"]] = relationship(
+        "app.core.achievements.models.Achievement", # Используем полный путь
+        back_populates="user", # Добавляем back_populates
+        cascade="all, delete-orphan"
+    )
+
+
+class Message(Base): # Теперь 'Base' здесь определена
+    __tablename__ = 'messages'
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(16), nullable=False) # 'user' or 'assistant'
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Связь с User
+    user: Mapped["User"] = relationship("User", back_populates="messages")
