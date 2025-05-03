@@ -1,0 +1,106 @@
+# /opt/ai-friend/.gitignore
+
+# === Python ===
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+# *.manifest
+# *.spec
+
+# === Environments ===
+# ИСКЛЮЧАЕМ ВСЕ .env файлы, КРОМЕ ШАБЛОНА
+# Это самая безопасная стратегия. Файлы .env.dev и .env.test
+# создаются локально на основе .env.sample или передаются через CI/секреты.
+.env
+.env.*
+!.env.sample
+
+# Виртуальные окружения
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# === IDEs / Editors ===
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.komodoproject
+
+# === OS Generated Files ===
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+# Windows
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# === Logs and Databases ===
+*.log
+logs/
+*.db
+*.sqlite3
+# Файл состояния/блокировки Celery Beat
+celerybeat-schedule
+# Возможные файлы дампа БД
+*.sql
+*.bak
+
+# === Testing ===
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# === Credentials / Secrets ===
+# КАТЕГОРИЧЕСКИ ИСКЛЮЧАЕМ ВСЕ ФАЙЛЫ ИЗ ЭТОЙ ДИРЕКТОРИИ!
+# Убедитесь, что она существует и именно там хранятся ключи.
+credentials/
+
+# Если ключи могут случайно оказаться в другом месте:
+*.pem
+*.key
+*.json # Будьте осторожны, если JSON используется и для несекретных данных
+
+# === Docker ===
+# Обычно volumes и Docker cache вне проекта, но на всякий случай
+# docker-data/
+# .docker/
+
+# === Other ===
+*.swp
+*.swo
