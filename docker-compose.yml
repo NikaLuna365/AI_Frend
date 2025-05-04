@@ -25,7 +25,6 @@ services:
     build: {context: ., dockerfile: Dockerfile}
     command: >
       sh -c "..." 
-    # Команда с ожиданием и alembic upgrade head
     env_file: [- .env.${ENVIRONMENT}]
     depends_on: {db: {condition: service_started}}
     volumes:
