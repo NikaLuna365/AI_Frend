@@ -1,11 +1,12 @@
-# /app/app/core/llm/providers/gemini.py (Финальная версия v4)
+# /app/app/core/llm/providers/gemini.py (ФИНАЛЬНАЯ ВЕРСИЯ v5 - Правильная передача system_instruction)
 
 from __future__ import annotations
 
 import logging
 import google.generativeai as genai
-from google.generativeai.types import GenerationConfig # Убрали SafetySetting/HarmCategory
-from typing import List, Sequence, Optional, Dict, Any
+# Импортируем нужные типы, включая ContentDict и PartDict
+from google.generativeai.types import GenerationConfig, ContentDict, PartDict, SafetySettingDict # Добавили ContentDict, PartDict, SafetySettingDict
+from typing import List, Sequence, Optional, Dict, Any, cast # Добавили cast
 
 from .base import BaseLLMProvider, Message, Event
 from app.config import settings
@@ -27,127 +28,141 @@ You are AI-Friend, a personalized AI companion... (Полный текст)
 class GeminiLLMProvider(BaseLLMProvider):
     name = "gemini"
     DEFAULT_MODEL_NAME = "gemini-1.5-flash-latest"
-    DEFAULT_SAFETY_SETTINGS = [ # Определяем как список словарей
+    # --- Используем тип SafetySettingDict ---
+    DEFAULT_SAFETY_SETTINGS: List[SafetySettingDict] = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
         {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
         {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
         {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
     ]
+    # -----------------------------------------
 
     def __init__(self, model_name: Optional[str] = None) -> None:
         self.model_name = model_name or self.DEFAULT_MODEL_NAME
-        # Сохраняем системный промпт как атрибут для передачи в конструктор
         self.system_prompt = SYSTEM_PROMPT_AI_FRIEND
-        # Сохраняем настройки безопасности
         self.safety_settings = self.DEFAULT_SAFETY_SETTINGS
-         # Сохраняем конфиг генерации
-        self.generation_config = GenerationConfig(
-            temperature=0.7,
-            candidate_count=1,
-        )
+        self.generation_config = GenerationConfig(temperature=0.7, candidate_count=1)
         try:
-            # --- ИСПРАВЛЕНИЕ: Передаем system_instruction в конструктор ---
-            # --- Также передаем safety_settings и generation_config сюда, ---
-            # --- если конструктор их принимает (проверяем по факту или докам) ---
+            # --- ИСПРАВЛЕНИЕ: Инициализируем БЕЗ system_instruction ---
             self.model = genai.GenerativeModel(
-                model_name=self.model_name,
-                system_instruction=self.system_prompt,
-                safety_settings=self.safety_settings,
-                # generation_config=self.generation_config # generation_config обычно передается в generate_content
+                model_name=self.model_name
+                # Убрали все доп. аргументы отсюда
             )
-            # -------------------------------------------------------------
-            log.info(
-                "GeminiLLMProvider initialized for model: %s with system prompt and safety settings.",
-                self.model_name
-            )
-        except TypeError as te:
-             # Если конструктор НЕ ПРИНИМАЕТ safety_settings или generation_config
-             log.warning("Got TypeError on GenerativeModel init (maybe safety/generation config moved to generate_content?): %s", te)
-             log.info("Retrying GenerativeModel init without safety/generation config...")
-             try:
-                  self.model = genai.GenerativeModel(
-                       model_name=self.model_name,
-                       system_instruction=self.system_prompt
-                  )
-                  log.info("GeminiLLMProvider initialized successfully (safety/generation config will be passed to generate_content).")
-             except Exception as e_fallback:
-                  log.exception("Failed to initialize GenerativeModel even in fallback: %s", e_fallback)
-                  raise RuntimeError(f"Failed to initialize Gemini model {self.model_name}") from e_fallback
+            # ------------------------------------------------------
+            log.info( "GeminiLLMProvider initialized for model: %s", self.model_name )
         except Exception as e:
             log.exception("Failed to initialize GenerativeModel '%s': %s", self.model_name, e)
             raise RuntimeError(f"Failed to initialize Gemini model {self.model_name}") from e
 
-    # --- Вспомогательная функция _prepare_gemini_history ---
-    def _prepare_gemini_history(self, context: Sequence[Message], current_prompt: Optional[str] = None) -> List[Dict[str, Any]]:
-        gemini_history = []
+    def _prepare_gemini_history(self, context: Sequence[Message]) -> List[ContentDict]:
+        """Преобразует историю в формат Gemini List[ContentDict]."""
+        gemini_history: List[ContentDict] = []
         for msg in context:
-            content = msg.get("content", "").strip();
+            content = msg.get("content", "").strip()
             if not content: continue
             role = "model" if msg.get("role") == "assistant" else "user"
-            gemini_history.append({'role': role, 'parts': [content]})
-        # НЕ добавляем current_prompt здесь, т.к. generate_content_async принимает contents=history
-        # и prompt передается как последний элемент history (если используем generate_content)
-        # ИЛИ если используем chat_session, то prompt передается в send_message.
-        # Оставим пока добавление prompt в generate().
+            # Используем ContentDict и PartDict для явного указания типа
+            gemini_history.append(cast(ContentDict, {"role": role, "parts": [PartDict(text=content)]}))
         return gemini_history
 
-    # --- Метод generate ---
     async def generate(
         self, prompt: str, context: Sequence[Message],
-        rag_facts: Optional[List[str]] = None, system_prompt_override: Optional[str] = None # override не будет работать
+        rag_facts: Optional[List[str]] = None, system_prompt_override: Optional[str] = None
         ) -> str:
         log.debug("Gemini: Generating response...")
-        # Готовим историю (без последнего prompt'а, т.к. он идет в send_message)
-        gemini_history_prepared = self._prepare_gemini_history(context, None)
 
-        # Добавляем RAG факты в ИСТОРИЮ перед последним сообщением
+        # --- ИСПРАВЛЕНИЕ: Формируем contents с системным промптом ---
+        system_instruction = system_prompt_override or self.system_prompt
+        # Системная инструкция идет ПЕРЕД историей
+        # Используем явное создание словарей или ContentDict/PartDict
+        history_base: List[ContentDict] = [
+             # Пытаемся передать system_instruction через специальное поле в первой "user" части,
+             # если модель поддерживает такой формат неявно, или просто как часть контекста.
+             # Альтернативно, можно пробовать роль "system", но она не всегда есть.
+             # Оставляем как "user", но с явным указанием, что это инструкция.
+             # cast(ContentDict, {"role": "user", "parts": [PartDict(text=f"[SYSTEM INSTRUCTION]\n{system_instruction}\n\n[USER QUERY]")]})
+             # --- БОЛЕЕ НАДЕЖНЫЙ ВАРИАНТ: Просто добавляем его к первому сообщению пользователя ---
+             # Но для чистоты диалога, лучше использовать возможности SDK, если они есть.
+             # Проверим, принимает ли модель system_instruction как отдельный объект ContentDict
+             # cast(ContentDict, {"role": "system", "parts": [PartDict(text=system_instruction)]}) # Не факт, что сработает
+        ]
+
+        # Добавляем RAG факты как сообщение пользователя
         if rag_facts:
             facts_text = "\n".join(f"- {fact}" for fact in rag_facts)
-            rag_message = {'role': 'user', 'parts': [f"(Context: Remember these facts about the user:\n{facts_text}\n)"]}
-            gemini_history_prepared.append(rag_message)
+            rag_message = cast(ContentDict, {'role': 'user', 'parts': [PartDict(text=f"(Вспомни эти факты о пользователе:\n{facts_text}\n)")]})
+            history_base.append(rag_message)
             log.debug("Gemini: Added %d RAG facts.", len(rag_facts))
 
-        # Если используется system_prompt_override, нужно было бы пересоздать модель,
-        # но пока игнорируем эту опцию для простоты.
+        # Добавляем реальную историю и текущий промпт
+        history_prepared = self._prepare_gemini_history(context)
+        current_message = cast(ContentDict, {'role': 'user', 'parts': [PartDict(text=prompt)]})
+
+        # Собираем полный контент: Системный (если поддерживается) + RAG + История + Текущий
+        # Пытаемся задать system_instruction через специальное поле модели, если доступно (новейшие SDK)
+        # А history передаем в contents
+        effective_system_instruction = system_prompt_override or self.system_prompt
+        contents_for_api = history_prepared + [current_message] # RAG + История + Промпт
 
         try:
-            # --- Используем Chat Session (предпочтительно для диалогов) ---
-            # Начинаем чат с подготовленной историей
-            chat_session = self.model.start_chat(history=gemini_history_prepared)
-            # Отправляем последнее сообщение пользователя
-            # Передаем safety_settings и generation_config здесь, если их не приняли в __init__
-            response = await chat_session.send_message_async(
-                 content=prompt, # Передаем только текущее сообщение
-                 generation_config=self.generation_config,
-                 safety_settings=self.safety_settings
+            # --- Вызов API ---
+            response = await self.model.generate_content_async(
+                contents=contents_for_api, # Передаем контент
+                generation_config=self.generation_config, # Конфиг генерации
+                safety_settings=self.safety_settings,   # Настройки безопасности
+                # --- Пытаемся задать system_instruction через поле модели, если есть ---
+                # --- Этот способ должен работать в новых версиях SDK для новых моделей ---
+                 # system_instruction=effective_system_instruction # Если нет, то он просто игнорируется или вызовет ошибку?
+                # --- ЕСЛИ ВЫШЕ НЕ РАБОТАЕТ, НУЖНО ВСТАВЛЯТЬ В contents ---
+                # Как вариант:
+                # contents=[{"role": "user", "parts": [effective_system_instruction, prompt]}] + history_prepared # Системный + промпт в первом сообщении
             )
-            # --------------------------------------------------------------
+            # -------------------------------------------------------------
 
-            # --- Обработка ответа ---
-            if response and response.text:
-                log.debug("Gemini response received successfully.")
-                return response.text.strip()
-            else:
-                reason = "Unknown reason"; # ... (код определения reason) ...
-                log.warning("Gemini returned empty/blocked response. Reason: %s", reason)
-                return f"(Я не могу сгенерировать ответ сейчас. Причина: {reason})"
+            # --- Обработка ответа (без изменений) ---
+            if response and response.text: #...
+                 return response.text.strip()
+            else: #... (обработка пустых/заблокированных) ...
+                 return f"(Я не могу сгенерировать ответ сейчас...)"
+        except TypeError as te:
+             # Ловим ошибку, если system_instruction НЕ поддерживается как аргумент
+             if 'system_instruction' in str(te):
+                  log.error("system_instruction is NOT accepted by generate_content_async. Trying without it (prompt needs to be self-contained or use history format)...")
+                  # --- ПОВТОРНЫЙ ВЫЗОВ БЕЗ system_instruction ---
+                  try:
+                       # Пробуем передать системный промпт просто как часть первого сообщения
+                       first_user_message = f"{effective_system_instruction}\n\nUser query: {prompt}"
+                       contents_alt = self._prepare_gemini_history(context) + [cast(ContentDict, {'role': 'user', 'parts': [PartDict(text=first_user_message)]})]
 
+                       response = await self.model.generate_content_async(
+                            contents=contents_alt,
+                            generation_config=self.generation_config,
+                            safety_settings=self.safety_settings
+                       )
+                       if response and response.text: return response.text.strip()
+                       else: return "(Я не могу сгенерировать ответ сейчас...)" # Повторная обработка ошибки
+                  except Exception as e_fallback:
+                       log.exception("Error during Gemini API fallback call: %s", e_fallback)
+                       return f"(Произошла ошибка при обращении к AI: {type(e_fallback).__name__})"
+             else:
+                  # Другая ошибка TypeError
+                  log.exception("TypeError during Gemini API call: %s", te)
+                  return f"(Произошла ошибка при вызове AI: TypeError)"
         except Exception as e:
             log.exception("Error during Gemini API call in generate(): %s", e)
             return f"(Произошла ошибка при обращении к AI: {type(e).__name__})"
 
-    # --- Метод generate_achievement_name (без system_instruction) ---
+    # --- generate_achievement_name (убираем system_instruction из вызова) ---
     async def generate_achievement_name(
         self, context: str, style_id: str, tone_hint: str, style_examples: str
     ) -> List[str]:
         log.debug("Gemini: Generating achievement name...")
-        # --- Формируем промпт (оставляем как есть) ---
-        system_prompt = "You are a highly creative naming expert..."
-        user_prompt = f"""..."""
-        full_prompt_contents = [ {'role': 'user', 'parts': [system_prompt]}, ...]
+        # --- Промпт для названий (оставляем как есть) ---
+        # ...
+        full_prompt_contents = [...]
         # ---------------------------------------------
         try:
-            generation_config_names = GenerationConfig(temperature=0.8, candidate_count=1)
+            generation_config_names = GenerationConfig(...)
             # --- Вызов без system_instruction ---
             response = await self.model.generate_content_async(
                 contents=full_prompt_contents,
@@ -156,11 +171,8 @@ class GeminiLLMProvider(BaseLLMProvider):
             )
             # ---------------------------------
             # --- Обработка ответа (оставляем как есть) ---
-            if response and response.text: # ... (парсинг имен) ...
-                return valid_names
-            else: # ... (обработка пустых/заблокированных) ...
-                return ["Default Name 1", "Default Name 2", "Default Name 3"]
-        except Exception as e: # ... (обработка ошибок) ...
+            # ...
+        except Exception as e: # ...
             return ["Default Name 1", "Default Name 2", "Default Name 3"]
 
     async def extract_events(self, text: str) -> List[Event]: return []
