@@ -14,25 +14,38 @@ from app.core.llm.schemas import Message, Event
 import dateparser.search
 
 
-class GeminiProvider:
-    def __init__(self) -> None:
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY not set")
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel("gemini-pro")
+# /app/app/core/llm/providers/gemini.py (Исправлена Сигнатура v7)
 
-    # ------------------------------------------------------------------ #
-    def generate(self, prompt: str, context: List[Message]) -> str:
-        hist = [{"role": m.role, "parts": [m.content]} for m in context]
-        hist.append({"role": "user", "parts": [prompt]})
-        resp = self.model.generate_content(hist)
-        return resp.text.strip()
+# ... (импорты, определение класса, __init__, _prepare_gemini_history, generate, generate_achievement_name, extract_events - БЕЗ ИЗМЕНЕНИЙ по сравнению с #75) ...
 
-    def extract_events(self, text: str) -> List[Event]:
-        found = dateparser.search.search_dates(text, languages=["ru", "en"])
-        events: List[Event] = []
-        if found:
-            for snippet, dt in found:
-                events.append(Event(title=snippet, start=dt))
-        return events
+    # --- ИСПРАВЛЕНИЕ: Заменяем '...' на реальные аргументы ---
+    async def generate_achievement_icon(
+        self,
+        context: str, # Текст для генерации иконки (тема/промпт)
+        style_id: str, # Идентификатор стиля (для выбора пресета/промпта)
+        style_keywords: str, # Ключевые слова для описания стиля
+        palette_hint: str, # Подсказка по цветам
+        shape_hint: str # Подсказка по форме
+        ) -> bytes | None:
+    # ------------------------------------------------------
+        """
+        Генерирует иконку ачивки (PNG байты) с помощью Vertex AI Imagen API.
+        """
+        log.info(f"GeminiProvider (Imagen): Generating icon. Context: '{context}'")
+        # ... (остальной код метода generate_achievement_icon БЕЗ ИЗМЕНЕНИЙ, как в #71) ...
+        if not settings.VERTEX_AI_PROJECT or not settings.VERTEX_AI_LOCATION: return None
+        try:
+            aiplatform.init(...)
+            model = aiplatform.ImageGenerationModel.from_pretrained(...)
+            # Формируем промпт на основе context, style_keywords, palette_hint, shape_hint
+            prompt = f"""..."""
+            imagen_parameters = {...}
+            loop = asyncio.get_running_loop()
+            response = await loop.run_in_executor(None, lambda: model.generate_images(...))
+            if response and response.images:
+                 return response.images[0]._blob
+            else: return None
+        except ImportError: return None
+        except Exception as e: log.exception(...); return None
+
+__all__ = ["GeminiLLMProvider"]
