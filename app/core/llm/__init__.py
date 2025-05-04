@@ -1,20 +1,22 @@
-"""
-Верхнеуровневый модуль `app.core.llm`.
+# /app/app/core/llm/__init__.py (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 
-* Экспортирует базовые типы (`Message`, `Event`).
-* Предоставляет фабрику `get_llm`, которая возвращает готовый LLM-провайдер
-  в соответствии с настройкой `settings.LLM_PROVIDER`.
-"""
 from __future__ import annotations
 
-from app.core.llm.providers import (   # noqa: F401
-    Message,
-    Event,
-    BaseLLMProvider,
-    get_llm_provider,
-)
+# --- Реэкспортируем КЛИЕНТ ---
+from .client import LLMClient
 
-# Наружу отдаём короткое имя, как раньше требовали импорты:
-get_llm = get_llm_provider  # noqa: N816
+# --- Реэкспортируем ТИПЫ СООБЩЕНИЙ/СОБЫТИЙ из правильного места ---
+from .message import Message, Event
 
-__all__ = ["get_llm", "BaseLLM", "Event", "Message", "StubLLMProvider", "GeminiLLMProvider"]
+# --- Опционально: Реэкспортируем базовый класс провайдера или фабрику ---
+#     (но обычно клиент - основная точка входа)
+# from .providers import BaseLLMProvider, get_llm_provider
+
+# --- Определяем, что будет доступно при 'from app.core.llm import *' ---
+__all__ = [
+    "LLMClient",
+    "Message",
+    "Event",
+    # "BaseLLMProvider", # Раскомментируйте, если нужно
+    # "get_llm_provider", # Раскомментируйте, если нужно
+]
