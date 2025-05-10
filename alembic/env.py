@@ -9,7 +9,11 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # Импортируем Alembic context
 from alembic import context
+from app.db.base import Base
+import app.core.users.models # noqa
+import app.core.achievements.models # noqa
 
+target_metadata = Base.metadata
 # --- Конфигурация ---
 # Это объект конфигурации Alembic, читает alembic.ini
 config = context.config
