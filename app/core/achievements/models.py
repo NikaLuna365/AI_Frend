@@ -1,84 +1,74 @@
-# /app/app/core/achievements/models.py (Исправленная версия с импортами)
+# /app/app/core/achievements/models.py (Версия для MVP)
 
 from __future__ import annotations
 from datetime import datetime
 # Используем стандартные типы Python 3.9+
 from typing import List, Optional, Sequence, Union, TYPE_CHECKING
 
-# --- ВАЖНО: Импортируем sqlalchemy как sa и нужные типы ---
-import sqlalchemy as sa
+# Импорты SQLAlchemy
+import sqlalchemy as sa # Для sa.true()/sa.false() если нужно
 from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
     String,
-    Text,  # Добавил Text для description/generation_context
-    Boolean, # Если будет использоваться
+    Text,
+    Boolean,
     UniqueConstraint # Для __table_args__
 )
-# -------------------------------------------------------
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
-# --- Импорт Base ---
-from app.db.base import Base # Убедитесь, что путь app.db.base верный
-# --------------------
+# Импорт Base
+from app.db.base import Base
 
 # Импорт для аннотаций типов связей
 if TYPE_CHECKING:
     from app.core.users.models import User
 
 
-# --- Модель Правил Ачивок ---
-class AchievementRule(Base):
-    __tablename__ = "achievement_rules"
-    # __table_args__ = {"extend_existing": True} # Убрано, т.к. начинаем с чистой БД
-
-    code: Mapped[str] = mapped_column(String(64), primary_key=True, index=True) # OK
-    title: Mapped[str] = mapped_column(String(128), nullable=False) # OK
-    description: Mapped[Optional[str]] = mapped_column(String(256), nullable=True) # OK
-    generation_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True, comment="Context/theme for LLM generation") # OK (Text импортирован)
-
-    # Связь один-ко-многим с полученными ачивками
-    achievements: Mapped[List["Achievement"]] = relationship(
-        "Achievement", # Если Achievement в этом же файле
-        back_populates="rule",
-        cascade="all, delete-orphan" # Удаляем ачивки при удалении правила
-    )
-
-    def __repr__(self) -> str: # pragma: no cover
-        return f"<AchievementRule code={self.code!r}>"
+# --- Модель AchievementRule НЕ СОЗДАЕТСЯ для MVP ---
+# class AchievementRule(Base):
+#     __tablename__ = "achievement_rules"
+#     code: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
+#     title: Mapped[str] = mapped_column(String(128), nullable=False)
+#     description: Mapped[Optional[str]] = mapped_column(String(256))
+#     generation_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+#
+#     achievements: Mapped[List["Achievement"]] = relationship(back_populates="rule")
 
 
-# --- Модель Полученных Ачивок ---
+# --- Модель Полученных Ачивок (Адаптирована для MVP) ---
 class Achievement(Base):
     __tablename__ = "achievements"
     # Уникальный ключ на пользователя и код ачивки
     __table_args__ = (UniqueConstraint('user_id', 'code', name='uq_achievement_user_code'),)
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True) # OK (Integer импортирован)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
 
     # Связь с Пользователем
-    user_id: Mapped[str] = mapped_column(String(64), ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True) # OK (String, ForeignKey импортированы)
+    user_id: Mapped[str] = mapped_column(String(64), ForeignKey('users.id', ondelete='CASCADE', name='fk_achievements_user_id'), nullable=False, index=True)
     user: Mapped["User"] = relationship(
         "app.core.users.models.User", # Полный путь к User
         back_populates="achievements"
     )
 
-    # Связь с Правилом Ачивки
-    code: Mapped[str] = mapped_column(String(64), ForeignKey('achievement_rules.code', ondelete='CASCADE'), nullable=False, index=True) # OK
-    rule: Mapped["AchievementRule"] = relationship(
-        "AchievementRule", # Если AchievementRule в этом же файле
-        back_populates="achievements"
-        # lazy="joined" # Можно выбрать стратегию загрузки правила
-    )
+    # Код ачивки (строковый идентификатор "зашитого" правила в сервисе)
+    code: Mapped[str] = mapped_column(String(64), nullable=False, index=True, comment="Identifier for the hardcoded achievement rule")
 
-    # Денормализованные/Сгенерированные поля
-    title: Mapped[str] = mapped_column(String(128), nullable=False, comment="Generated title") # OK
-    badge_svg_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True, comment="URL to the generated SVG badge") # OK
+    # Поля, заполняемые после генерации
+    title: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, comment="Generated title") # Может быть None до генерации
+    badge_png_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True, comment="URL to the generated PNG badge in GCS")
 
-    # Временная метка получения
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False) # OK (DateTime импортирован)
+    # --- НОВОЕ ПОЛЕ: Статус генерации ачивки ---
+    # Возможные значения: "PENDING_GENERATION", "COMPLETED", "FAILED_GENERATION"
+    # Используйте Enum в реальном коде
+    status: Mapped[str] = mapped_column(String(32), default="PENDING_GENERATION", nullable=False, index=True)
+    # ------------------------------------------
+
+    # Временная метка получения/создания
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     def __repr__(self) -> str: # pragma: no cover
-        return f"<Achievement id={self.id} user_id={self.user_id!r} code={self.code!r}>"
+        return f"<Achievement id={self.id} user='{self.user_id}' code='{self.code}' status='{self.status}'>"
