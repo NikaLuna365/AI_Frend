@@ -1,83 +1,56 @@
-# /docker-compose.yml (Исправлен синтаксис YAML)
+# /docker-compose.yml (Версия с отключенным монтированием кода и сервисом migrate)
 
 services:
-  # --- База Данных PostgreSQL ---
   db:
     image: postgres:15-alpine
     container_name: aifriend-db
-    # --- ИСПРАВЛЕНО: Стандартный формат environment (ключ: значение) ---
     environment:
       POSTGRES_USER: ai_user
       POSTGRES_PASSWORD: StrongPass
       POSTGRES_DB: ai_drug
-    # --- ИСПРАВЛЕНО: Стандартный формат volumes (список строк) ---
     volumes:
       - db_data:/var/lib/postgresql/data
-    # --- ИСПРАВЛЕНО: Стандартный формат healthcheck ---
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -q"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-      start_period: 10s
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -q"], interval: 5s, timeout: 3s, retries: 5, start_period: 10s}
     restart: unless-stopped
 
-  # --- Redis ---
   redis:
     image: redis:7-alpine
     container_name: aifriend-redis
     command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
-    # --- ИСПРАВЛЕНО: Стандартный формат volumes ---
     volumes:
       - redis_data:/data
-    # --- ИСПРАВЛЕНО: Стандартный формат healthcheck ---
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 3
-      start_period: 5s
+    healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 3, start_period: 5s}
     restart: unless-stopped
 
-  # --- Сервис Миграции ---
-  migrate:
-    container_name: aifriend-migrate
-    # --- ИСПРАВЛЕНО: Стандартный формат build ---
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: >
-      sh -c "
-        echo 'Migrate: Waiting for DB...' &&
-        until pg_isready -h db -U ai_user -d ai_drug -q; do sleep 1; done &&
-        echo 'Migrate: DB ready!' &&
-        echo 'Migrate: Autogenerating (if needed)...' &&
-        alembic -c /app/alembic.ini revision --autogenerate -m 'auto-generated changes' &&
-        echo 'Migrate: Applying migrations...' &&
-        alembic -c /app/alembic.ini upgrade head &&
-        echo 'Migrate: Finished.'
-      "
-    # --- ИСПРАВЛЕНО: Стандартный формат env_file ---
-    env_file:
-      - .env.${ENVIRONMENT}
-    # --- ИСПРАВЛЕНО: Стандартный формат depends_on ---
-    depends_on:
-      db:
-        condition: service_started
-    # --- ИСПРАВЛЕНО: Стандартный формат volumes ---
-    volumes:
-      - ./credentials:/app/credentials:ro # Добавили credentials для консистентности
-    restart: 'no'
+  # --- Сервис Миграции - ЗАКОММЕНТИРОВАН для запуска через 'run' ---
+  # migrate:
+  #   container_name: aifriend-migrate
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile
+  #   command: >
+  #     sh -c "..." # Команда с ожиданием и alembic upgrade head
+  #   env_file:
+  #     - .env.${ENVIRONMENT}
+  #   depends_on:
+  #     db:
+  #       condition: service_started
+  #   volumes: # Оставляем credentials на случай, если env.py их использует
+  #     - ./credentials:/app/credentials:ro
+  #   restart: 'no'
+  # --------------------------------------------------------------
 
-  # --- Веб-сервер FastAPI ---
   web:
     container_name: aifriend-web
     build:
       context: .
       dockerfile: Dockerfile
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    # --- УБИРАЕМ/КОММЕНТИРУЕМ монтирование основного кода ---
+    # volumes:
+    #   - .:/app # <--- ЭТО ПЕРЕКРЫВАЛО КОД В ОБРАЗЕ
+    # --- Оставляем только credentials ---
     volumes:
-      - .:/app
       - ./credentials:/app/credentials:ro
     ports:
       - "8000:8000"
@@ -90,15 +63,16 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # --- Celery Worker ---
   celery:
     container_name: aifriend-celery
     build:
       context: .
       dockerfile: Dockerfile
     command: ["celery", "-A", "app.workers.tasks:celery_app", "worker", "--loglevel=info"]
+    # --- УБИРАЕМ/КОММЕНТИРУЕМ монтирование основного кода ---
+    # volumes:
+    #   - .:/app
     volumes:
-      - .:/app
       - ./credentials:/app/credentials:ro
     env_file:
       - .env.${ENVIRONMENT}
@@ -109,15 +83,16 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # --- Celery Beat ---
   celery-beat:
     container_name: aifriend-celery-beat
     build:
       context: .
       dockerfile: Dockerfile
     command: ["celery", "-A", "app.workers.tasks:celery_app", "beat", "--loglevel=info"]
+    # --- УБИРАЕМ/КОММЕНТИРУЕМ монтирование основного кода ---
+    # volumes:
+    #   - .:/app
     volumes:
-      - .:/app
       - ./credentials:/app/credentials:ro
     env_file:
       - .env.${ENVIRONMENT}
@@ -128,9 +103,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-# --- Named Volumes ---
 volumes:
-  db_data: # --- ИСПРАВЛЕНО: Стандартный формат определения volume ---
-    driver: local
-  redis_data:
-    driver: local
+  db_data: {driver: local}
+  redis_data: {driver: local}
