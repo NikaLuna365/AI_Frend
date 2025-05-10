@@ -1,4 +1,4 @@
-# /docker-compose.yml (Версия с отключенным монтированием кода и сервисом migrate)
+# /opt/ai-friend/docker-compose.yml (Исправленная версия с credentials, без монтирования кода)
 
 services:
   db:
@@ -22,23 +22,31 @@ services:
     healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 3, start_period: 5s}
     restart: unless-stopped
 
-  # --- Сервис Миграции - ЗАКОММЕНТИРОВАН для запуска через 'run' ---
-  # migrate:
-  #   container_name: aifriend-migrate
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile
-  #   command: >
-  #     sh -c "..." # Команда с ожиданием и alembic upgrade head
-  #   env_file:
-  #     - .env.${ENVIRONMENT}
-  #   depends_on:
-  #     db:
-  #       condition: service_started
-  #   volumes: # Оставляем credentials на случай, если env.py их использует
-  #     - ./credentials:/app/credentials:ro
-  #   restart: 'no'
-  # --------------------------------------------------------------
+  migrate:
+    container_name: aifriend-migrate
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      sh -c "
+        echo 'Migrate: Waiting for DB...' &&
+        until pg_isready -h db -U ai_user -d ai_drug -q; do sleep 1; done &&
+        echo 'Migrate: DB ready!' &&
+        echo 'Migrate: Autogenerating (if needed)...' &&
+        alembic -c /app/alembic.ini revision --autogenerate -m 'auto-generated on startup' &&
+        echo 'Migrate: Applying migrations...' &&
+        alembic -c /app/alembic.ini upgrade head &&
+        echo 'Migrate: Finished.'
+      "
+    env_file:
+      - .env.${ENVIRONMENT}
+    depends_on:
+      db:
+        condition: service_started
+    # --- Монтируем credentials, если они нужны на этапе миграции (маловероятно) ---
+    volumes:
+      - ./credentials:/app/credentials:ro
+    restart: 'no'
 
   web:
     container_name: aifriend-web
@@ -46,11 +54,9 @@ services:
       context: .
       dockerfile: Dockerfile
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-    # --- УБИРАЕМ/КОММЕНТИРУЕМ монтирование основного кода ---
     # volumes:
-    #   - .:/app # <--- ЭТО ПЕРЕКРЫВАЛО КОД В ОБРАЗЕ
-    # --- Оставляем только credentials ---
-    volumes:
+    #   - .:/app # <-- ЗАКОММЕНТИРОВАНО/УДАЛЕНО
+    volumes: # <-- МОНТИРУЕМ ТОЛЬКО CREDENTIALS
       - ./credentials:/app/credentials:ro
     ports:
       - "8000:8000"
@@ -69,10 +75,9 @@ services:
       context: .
       dockerfile: Dockerfile
     command: ["celery", "-A", "app.workers.tasks:celery_app", "worker", "--loglevel=info"]
-    # --- УБИРАЕМ/КОММЕНТИРУЕМ монтирование основного кода ---
     # volumes:
-    #   - .:/app
-    volumes:
+    #   - .:/app # <-- ЗАКОММЕНТИРОВАНО/УДАЛЕНО
+    volumes: # <-- МОНТИРУЕМ ТОЛЬКО CREDENTIALS
       - ./credentials:/app/credentials:ro
     env_file:
       - .env.${ENVIRONMENT}
@@ -89,10 +94,9 @@ services:
       context: .
       dockerfile: Dockerfile
     command: ["celery", "-A", "app.workers.tasks:celery_app", "beat", "--loglevel=info"]
-    # --- УБИРАЕМ/КОММЕНТИРУЕМ монтирование основного кода ---
     # volumes:
-    #   - .:/app
-    volumes:
+    #   - .:/app # <-- ЗАКОММЕНТИРОВАНО/УДАЛЕНО
+    volumes: # <-- МОНТИРУЕМ ТОЛЬКО CREDENTIALS
       - ./credentials:/app/credentials:ro
     env_file:
       - .env.${ENVIRONMENT}
