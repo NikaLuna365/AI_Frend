@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 
 # Проверка конфигурации SDK
 try:
-    _test_model = genai.GenerativeModel('Gemini 2.0 Flash-Lite') # Используем flash для теста
+    _test_model = genai.GenerativeModel('gemini-1.5-flash-latest') # Используем flash для теста
     log.info("Google Generative AI SDK seems configured correctly.")
 except Exception as e:
     log.warning("Could not pre-initialize test model, potential config issue: %s", e) # Смягчаем до Warning
@@ -36,7 +36,7 @@ You are AI-Friend, a personalized AI companion... (Полный текст)
 class GeminiLLMProvider(BaseLLMProvider):
     name = "gemini"
     # --- УКАЖИТЕ НУЖНУЮ МОДЕЛЬ ---
-    DEFAULT_MODEL_NAME = "Gemini 2.0 Flash-Lite" # Замените на "gemini-2.0-flash-lite", если она доступна
+    DEFAULT_MODEL_NAME = "gemini-1.5-flash-latest" # Замените на "gemini-2.0-flash-lite", если она доступна
     # ---------------------------
     IMAGEN_MODEL_NAME = "imagegeneration@006"
 
