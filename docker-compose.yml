@@ -1,48 +1,112 @@
-# /app/app/core/achievements/models.py (ФИНАЛЬНАЯ ВЕРСИЯ для MVP без AchievementRule)
+# /opt/ai-friend/docker-compose.yml (Исправленная версия с credentials, без монтирования кода)
 
-from __future__ import annotations
-from datetime import datetime
-from typing import List, Optional, Sequence, Union, TYPE_CHECKING
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: aifriend-db
+    environment:
+      POSTGRES_USER: ai_user
+      POSTGRES_PASSWORD: StrongPass
+      POSTGRES_DB: ai_drug
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck: {test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -q"], interval: 5s, timeout: 3s, retries: 5, start_period: 10s}
+    restart: unless-stopped
 
-import sqlalchemy as sa
-from sqlalchemy import (
-    DateTime, ForeignKey, Integer, String, Text, Boolean, UniqueConstraint
-)
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.sql import func
+  redis:
+    image: redis:7-alpine
+    container_name: aifriend-redis
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - redis_data:/data
+    healthcheck: {test: ["CMD", "redis-cli", "ping"], interval: 5s, timeout: 3s, retries: 3, start_period: 5s}
+    restart: unless-stopped
 
-from app.db.base import Base
+  migrate:
+    container_name: aifriend-migrate
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: >
+      sh -c "
+        echo 'Migrate: Waiting for DB...' &&
+        until pg_isready -h db -U ai_user -d ai_drug -q; do sleep 1; done &&
+        echo 'Migrate: DB ready!' &&
+        echo 'Migrate: Autogenerating (if needed)...' &&
+        alembic -c /app/alembic.ini revision --autogenerate -m 'auto-generated on startup' &&
+        echo 'Migrate: Applying migrations...' &&
+        alembic -c /app/alembic.ini upgrade head &&
+        echo 'Migrate: Finished.'
+      "
+    env_file:
+      - .env.${ENVIRONMENT}
+    depends_on:
+      db:
+        condition: service_started
+    # --- Монтируем credentials, если они нужны на этапе миграции (маловероятно) ---
+    volumes:
+      - ./credentials:/app/credentials:ro
+    restart: 'no'
 
-if TYPE_CHECKING:
-    from app.core.users.models import User
+  web:
+    container_name: aifriend-web
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    # volumes:
+    #   - .:/app # <-- ЗАКОММЕНТИРОВАНО/УДАЛЕНО
+    volumes: # <-- МОНТИРУЕМ ТОЛЬКО CREDENTIALS
+      - ./credentials:/app/credentials:ro
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.${ENVIRONMENT}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
-# --- Модель AchievementRule НЕ ИСПОЛЬЗУЕТСЯ и УДАЛЕНА/ЗАКОММЕНТИРОВАНА ---
-# class AchievementRule(Base):
-#     __tablename__ = "achievement_rules"
-#     code: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
-#     title: Mapped[str] = mapped_column(String(128), nullable=False)
-#     description: Mapped[Optional[str]] = mapped_column(String(256))
-#     generation_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-#     achievements: Mapped[List["Achievement"]] = relationship(back_populates="rule")
-# -----------------------------------------------------------------------
+  celery:
+    container_name: aifriend-celery
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "app.workers.tasks:celery_app", "worker", "--loglevel=info"]
+    # volumes:
+    #   - .:/app # <-- ЗАКОММЕНТИРОВАНО/УДАЛЕНО
+    volumes: # <-- МОНТИРУЕМ ТОЛЬКО CREDENTIALS
+      - ./credentials:/app/credentials:ro
+    env_file:
+      - .env.${ENVIRONMENT}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
-class Achievement(Base):
-    __tablename__ = "achievements"
-    __table_args__ = (UniqueConstraint('user_id', 'code', name='uq_achievement_user_code'),)
+  celery-beat:
+    container_name: aifriend-celery-beat
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["celery", "-A", "app.workers.tasks:celery_app", "beat", "--loglevel=info"]
+    # volumes:
+    #   - .:/app # <-- ЗАКОММЕНТИРОВАНО/УДАЛЕНО
+    volumes: # <-- МОНТИРУЕМ ТОЛЬКО CREDENTIALS
+      - ./credentials:/app/credentials:ro
+    env_file:
+      - .env.${ENVIRONMENT}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    user_id: Mapped[str] = mapped_column(String(64), ForeignKey('users.id', ondelete='CASCADE', name='fk_achievements_user_id'), nullable=False, index=True)
-    user: Mapped["User"] = relationship("app.core.users.models.User", back_populates="achievements")
-
-    # Код ачивки (строковый идентификатор "зашитого" правила)
-    code: Mapped[str] = mapped_column(String(64), nullable=False, index=True, comment="Identifier for the hardcoded achievement trigger")
-
-    title: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, comment="Generated title")
-    badge_png_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True, comment="URL to the generated PNG badge in GCS")
-    status: Mapped[str] = mapped_column(String(32), default="PENDING_GENERATION", nullable=False, index=True)
-
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-
-    def __repr__(self) -> str: # pragma: no cover
-        return f"<Achievement id={self.id} user='{self.user_id}' code='{self.code}' status='{self.status}'>"
+volumes:
+  db_data: {driver: local}
+  redis_data: {driver: local}
