@@ -1,193 +1,129 @@
-# app/core/achievements/service.py
+# /app/app/core/achievements/service.py (Версия для MVP с зашитыми правилами)
 
 from __future__ import annotations
 
 import logging
-from typing import List, Sequence # Добавим Sequence
+from typing import List, Sequence, Optional, Dict, Any # Добавили Dict, Any
 
-# --- SQLAlchemy и Сессия ---
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-# --- НЕ ИМПОРТИРУЕМ get_db_session ---
-# Вместо этого, сервис будет получать AsyncSession через __init__
+from sqlalchemy.sql import func
 
-# --- Модели ---
-from .models import AchievementRule, Achievement # Предполагаем, что модели здесь
-from app.core.llm.message import Event # Для информации о событии
-
-# --- LLM Клиент ---
-# Предполжим, что у нас есть способ получить LLMClient,
-# возможно, через фабрику или DI позже. Пока импортируем.
-from app.core.llm.client import LLMClient
-
-# --- Хранилище Файлов ---
-# TODO: Добавить интеграцию с хранилищем файлов (S3/GCS)
+# --- ИСПРАВЛЕНИЕ: Импортируем ТОЛЬКО Achievement ---
+from .models import Achievement
+# ----------------------------------------------
+# from app.core.llm.client import LLMClient # LLMClient теперь используется в Celery задаче
 
 log = logging.getLogger(__name__)
 
+# --- Пример "зашитых" правил для MVP ---
+# Ключ - это achievement_code
+HARDCODED_ACHIEVEMENT_RULES: Dict[str, Dict[str, Any]] = {
+    "first_message": {
+        "title_hint": "First Message Sent", # Подсказка для пользователя/лога
+        "generation_theme": "A user sending their very first message in a new friendly chat application.",
+        "trigger_description": "Awarded for sending the first message."
+    },
+    "cat_lover_mention": {
+        "title_hint": "Cat Lover Mention",
+        "generation_theme": "Expressing love for cats or mentioning a pet cat.",
+        "trigger_keywords": ["cat", "кошка", "котенок", "кот", "кота", "кошку"]
+    },
+    # Добавьте другие правила по мере необходимости
+}
+# ---------------------------------------
+
 class AchievementsService:
-    """
-    Асинхронный сервис для управления Достижениями (Ачивками).
-
-    - Проверяет условия выполнения правил ачивок.
-    - Генерирует названия и иконки через LLM (асинхронно).
-    - Сохраняет разблокированные ачивки в БД.
-    - Загружает иконки в хранилище файлов.
-    """
-
-    def __init__(self, db_session: AsyncSession, llm_client: LLMClient):
-        """
-        Инициализирует сервис.
-
-        Args:
-            db_session (AsyncSession): Асинхронная сессия БД.
-            llm_client (LLMClient): Асинхронный клиент для LLM.
-        """
+    def __init__(self, db_session: AsyncSession): # Убрали llm_client
         self.db: AsyncSession = db_session
-        self.llm: LLMClient = llm_client
-        # TODO: Инициализировать клиент для хранилища файлов
+        # self.llm: LLMClient = llm_client # LLMClient теперь в Celery задаче
 
-    async def _get_rule(self, code: str) -> AchievementRule | None:
-        """Вспомогательный метод для получения правила по коду."""
-        stmt = select(AchievementRule).where(AchievementRule.code == code)
-        result = await self.db.scalars(stmt)
-        return result.first()
-
-    async def _has_achievement(self, user_id: str, code: str) -> bool:
-        """Проверяет, есть ли у пользователя уже такая ачивка."""
-        stmt = select(Achievement.id).where(
-            Achievement.user_id == user_id,
-            Achievement.code == code
-        ).limit(1)
+    async def _get_achievement(self, user_id: str, code: str) -> Achievement | None:
+        """Вспомогательный метод для получения существующей ачивки."""
+        stmt = select(Achievement).where(Achievement.user_id == user_id, Achievement.code == code)
         result = await self.db.execute(stmt)
-        return result.scalar_one_or_none() is not None
+        return result.scalar_one_or_none()
+
+    async def _create_pending_achievement(
+        self, user_id: str, achievement_code: str, rule_title_hint: str
+    ) -> Achievement:
+        """Создает новую запись ачивки со статусом PENDING_GENERATION."""
+        log.info(f"Creating PENDING achievement '{achievement_code}' for user '{user_id}'")
+        new_achievement = Achievement(
+            user_id=user_id,
+            code=achievement_code,
+            title=f"Pending: {rule_title_hint}", # Временный заголовок
+            status="PENDING_GENERATION",
+            badge_png_url=None
+        )
+        self.db.add(new_achievement)
+        await self.db.flush() # Получаем ID
+        await self.db.refresh(new_achievement)
+        return new_achievement
 
     async def check_and_award(
         self,
         user_id: str,
-        events: List[Event] | None = None, # События из LLM
-        reply_text: str | None = None, # Ответ LLM
-        # Можно добавить другие контекстные данные: message, reminder, etc.
-        trigger_key: str | None = None # Явный ключ триггера (напр., "message_sent")
-    ) -> List[str]:
+        message_text: str | None = None, # Основной триггер для MVP
+        # trigger_context: Any = None # Более общий контекст, если понадобится
+    ) -> List[str]: # Возвращает список кодов запущенных на генерацию ачивок
         """
-        Проверяет условия выполнения ачивок и выдает новые.
-        Основная точка входа для выдачи ачивок.
-
-        Args:
-            user_id (str): ID пользователя.
-            events (List[Event] | None, optional): События, распознанные LLM.
-            reply_text (str | None, optional): Текст ответа LLM.
-            trigger_key (str | None, optional): Явный ключ события-триггера.
-
-        Returns:
-            List[str]: Список кодов newly unlocked ачивок.
+        Проверяет условия для "зашитых" правил и запускает генерацию ачивок.
         """
-        log.debug("Checking achievements for user %s (trigger: %s)", user_id, trigger_key)
-        unlocked_codes: List[str] = []
+        log.debug(f"AchievementsService: Checking achievements for user '{user_id}'")
+        triggered_codes_for_generation: List[str] = []
 
-        # --- Логика определения, какие ачивки проверить ---
-        # TODO: Реализовать сложную логику на основе trigger_key, events, reply_text
-        # и, возможно, состояния пользователя (статистики и т.д.)
-        # Сейчас для примера проверим ачивку 'first_event', если пришли события
-        codes_to_check: List[str] = []
-        if events:
-            codes_to_check.append("first_event") # Пример правила
-        if trigger_key == "message_saved":
-            codes_to_check.append("first_message") # Другой пример
-        # Добавить другие правила...
+        from app.workers.tasks import generate_achievement_task # Импорт Celery задачи
 
-        # --- Проверка и выдача ---
-        for code in set(codes_to_check): # Используем set для уникальности
-            if not await self._has_achievement(user_id, code):
-                log.info("Checking rule '%s' for user %s", code, user_id)
-                rule = await self._get_rule(code)
-                if rule:
-                    # TODO: Добавить более сложную проверку условий правила, если нужно
-                    log.info("Rule '%s' met! Awarding achievement to user %s.", code, user_id)
-                    try:
-                        await self._award_achievement(user_id, rule)
-                        unlocked_codes.append(code)
-                    except Exception as e:
-                        log.exception(
-                            "Failed to award achievement '%s' to user %s: %s",
-                            code, user_id, e
+        # 1. Правило "Первое сообщение"
+        first_message_code = "first_message"
+        if first_message_code in HARDCODED_ACHIEVEMENT_RULES:
+            existing_fm_ach = await self._get_achievement(user_id, first_message_code)
+            if not existing_fm_ach: # Если ачивки еще нет
+                log.info(f"Triggered '{first_message_code}' for user '{user_id}'")
+                rule_data = HARDCODED_ACHIEVEMENT_RULES[first_message_code]
+                pending_ach = await self._create_pending_achievement(user_id, first_message_code, rule_data["title_hint"])
+                generate_achievement_task.delay(
+                    user_id=user_id,
+                    achievement_code=first_message_code,
+                    theme=rule_data["generation_theme"]
+                )
+                triggered_codes_for_generation.append(first_message_code)
+
+        # 2. Правило "Упоминание кошек" (пример)
+        cat_lover_code = "cat_lover_mention"
+        if message_text and cat_lover_code in HARDCODED_ACHIEVEMENT_RULES:
+            rule_data = HARDCODED_ACHIEVEMENT_RULES[cat_lover_code]
+            for keyword in rule_data.get("trigger_keywords", []):
+                if keyword in message_text.lower():
+                    existing_cl_ach = await self._get_achievement(user_id, cat_lover_code)
+                    if not existing_cl_ach:
+                        log.info(f"Triggered '{cat_lover_code}' for user '{user_id}' by keyword '{keyword}'")
+                        pending_ach_cl = await self._create_pending_achievement(user_id, cat_lover_code, rule_data["title_hint"])
+                        generate_achievement_task.delay(
+                            user_id=user_id,
+                            achievement_code=cat_lover_code,
+                            theme=rule_data["generation_theme"]
                         )
-                        # Не прерываем процесс из-за ошибки с одной ачивкой
-                else:
-                    log.warning("Achievement rule with code '%s' not found in DB.", code)
+                        triggered_codes_for_generation.append(cat_lover_code)
+                        break # Достаточно одного ключевого слова
 
-        if unlocked_codes:
-            log.info("User %s unlocked new achievements: %s", user_id, unlocked_codes)
+        # Добавьте другие "зашитые" правила здесь
 
-        # Возвращаем только коды новых ачивок
-        return unlocked_codes
+        if triggered_codes_for_generation:
+            await self.db.commit() # Коммитим создание PENDING ачивок
+            log.info(f"Achievements generation tasked for user '{user_id}': {triggered_codes_for_generation}")
+        else:
+            log.debug(f"No new achievements triggered for user '{user_id}'")
 
-    async def _award_achievement(self, user_id: str, rule: AchievementRule):
-        """
-        Внутренний метод для генерации и сохранения конкретной ачивки.
-
-        Args:
-            user_id (str): ID пользователя.
-            rule (AchievementRule): Правило ачивки для выдачи.
-
-        Raises:
-            Exception: При ошибках генерации или сохранения.
-        """
-        # --- Генерация контента (вынести в Celery?) ---
-        # TODO: Определить параметры для генерации (стиль, палитра и т.д.)
-        # на основе правила (rule) или настроек пользователя/системы.
-        style_id = "cartoon_absurd" # Пример
-        # ... другие параметры ...
-
-        # Генерируем название (пример)
-        generated_names = ["Temporary Name 1", "Temporary Name 2", "Temporary Name 3"] # Заглушка
-        # TODO: Заменить на реальный вызов LLM
-        # generated_names = await self.llm.generate_achievement_name(...)
-        achievement_title = generated_names[0] # TODO: Добавить проверку уникальности имени
-
-        # Генерируем иконку (пример)
-        icon_bytes = b"fake-png-bytes" # Заглушка
-        # TODO: Заменить на реальный вызов LLM
-        # icon_bytes = await self.llm.generate_achievement_icon(...)
-
-        # --- Сохранение иконки (вынести в Celery?) ---
-        icon_url = None
-        if icon_bytes:
-             # TODO: Реализовать загрузку в S3/GCS и получение URL
-             # storage_client = get_storage_client()
-             # icon_url = await storage_client.upload(
-             #    f"achievements/{user_id}/{rule.code}.png", icon_bytes
-             # )
-             icon_url = f"http://example.com/achievements/{rule.code}.png" # Заглушка URL
-             log.info("Generated icon for achievement '%s', URL: %s", rule.code, icon_url)
-
-
-        # --- Сохранение ачивки в БД ---
-        new_achievement = Achievement(
-            user_id=user_id,
-            code=rule.code,
-            # Денормализуем поля из правила
-            title=achievement_title, # Используем сгенерированное название
-            icon_url=icon_url, # Используем URL из хранилища
-        )
-        self.db.add(new_achievement)
-        await self.db.flush() # Достаточно flush, коммит будет снаружи
-        log.info("Saved achievement record for user %s, code '%s'", user_id, rule.code)
+        return triggered_codes_for_generation
 
     async def get_user_achievements(self, user_id: str) -> Sequence[Achievement]:
-        """
-        Получает список разблокированных ачивок для пользователя.
-
-        Args:
-            user_id (str): ID пользователя.
-
-        Returns:
-            Sequence[Achievement]: Список объектов Achievement.
-        """
-        log.debug("Getting achievements for user %s", user_id)
-        stmt = select(Achievement).where(Achievement.user_id == user_id).order_by(Achievement.created_at)
+        """Получает список ПОЛНОСТЬЮ СГЕНЕРИРОВАННЫХ ачивок для пользователя."""
+        log.debug(f"AchievementsService: Getting COMPLETED achievements for user '{user_id}'")
+        stmt = select(Achievement).where(
+            Achievement.user_id == user_id,
+            Achievement.status == "COMPLETED" # Показываем только завершенные
+        ).order_by(Achievement.created_at)
         result = await self.db.scalars(stmt)
-        achievements = result.all()
-        log.debug("Found %d achievements for user %s", len(achievements), user_id)
-        return achievements
+        return result.all()
