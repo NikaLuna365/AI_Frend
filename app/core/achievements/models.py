@@ -1,4 +1,4 @@
-# /app/app/core/achievements/models.py (ФИНАЛЬНАЯ ВЕРСИЯ для MVP без AchievementRule)
+# /app/app/core/achievements/models.py (Версия для MVP без AchievementRule - ПОДТВЕРЖДАЕМ)
 
 from __future__ import annotations
 from datetime import datetime
@@ -17,14 +17,6 @@ if TYPE_CHECKING:
     from app.core.users.models import User
 
 # --- Модель AchievementRule НЕ ИСПОЛЬЗУЕТСЯ и УДАЛЕНА/ЗАКОММЕНТИРОВАНА ---
-# class AchievementRule(Base):
-#     __tablename__ = "achievement_rules"
-#     code: Mapped[str] = mapped_column(String(64), primary_key=True, index=True)
-#     title: Mapped[str] = mapped_column(String(128), nullable=False)
-#     description: Mapped[Optional[str]] = mapped_column(String(256))
-#     generation_context: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-#     achievements: Mapped[List["Achievement"]] = relationship(back_populates="rule")
-# -----------------------------------------------------------------------
 
 class Achievement(Base):
     __tablename__ = "achievements"
@@ -33,14 +25,10 @@ class Achievement(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[str] = mapped_column(String(64), ForeignKey('users.id', ondelete='CASCADE', name='fk_achievements_user_id'), nullable=False, index=True)
     user: Mapped["User"] = relationship("app.core.users.models.User", back_populates="achievements")
-
-    # Код ачивки (строковый идентификатор "зашитого" правила)
     code: Mapped[str] = mapped_column(String(64), nullable=False, index=True, comment="Identifier for the hardcoded achievement trigger")
-
     title: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, comment="Generated title")
     badge_png_url: Mapped[Optional[str]] = mapped_column(String(512), nullable=True, comment="URL to the generated PNG badge in GCS")
     status: Mapped[str] = mapped_column(String(32), default="PENDING_GENERATION", nullable=False, index=True)
-
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
