@@ -1,14 +1,7 @@
-import os
-import sys
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta
-
-# Ensure environment and path setup like other tests
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-os.environ.setdefault("JWT_SECRET_KEY", "test-secret")
-import app.conftest  # noqa: F401
 
 from app.core.reminders.service import RemindersService
 from app.db.base import async_session_context, create_db_and_tables, drop_db_and_tables

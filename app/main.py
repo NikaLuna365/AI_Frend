@@ -14,7 +14,8 @@ from app.api.v1.achievements_api import router as achievements_router # <--- Н�
 # ------------------------
 from app.config import settings
 
-logging.basicConfig(...) # Оставляем как есть
+# Configure basic logging
+logging.basicConfig(level=logging.INFO)
 description = """...""" # Оставляем как есть
 tags_metadata = [ # Добавляем тег для ачивок
     {"name": "Authentication & Testing", "description": "..."},
