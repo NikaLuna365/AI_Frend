@@ -8,6 +8,7 @@ sys.path.insert(0, str(os.path.dirname(__file__)))
 # Тестовое окружение: in-memory SQLite и eager Celery
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+os.environ.setdefault("JWT_SECRET_KEY", "secret")
 
 # Обязательно после установки ENVIRONMENT подключаем Celery-конфиг eager
 from app.workers.tasks import celery_app
