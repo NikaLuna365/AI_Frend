@@ -118,8 +118,33 @@ async def async_session_context() -> AsyncGenerator[AsyncSession, None]:
         await session.close()
 
 
+# --- Helpers for tests -------------------------------------------------
+async def create_db_and_tables() -> None:
+    """Create all tables defined by ``Base``."""
+    if settings.ENVIRONMENT == "test":
+        Base.metadata.create_all(bind=engine)
+    else:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+
+async def drop_db_and_tables() -> None:
+    """Drop all tables defined by ``Base``."""
+    if settings.ENVIRONMENT == "test":
+        Base.metadata.drop_all(bind=engine)
+    else:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+
+
 # --- Экспорты ---
 __all__ = [
-    "Base", "engine", "async_session_factory", "AsyncSession",
-    "get_async_db_session", "async_session_context",
+    "Base",
+    "engine",
+    "async_session_factory",
+    "AsyncSession",
+    "get_async_db_session",
+    "async_session_context",
+    "create_db_and_tables",
+    "drop_db_and_tables",
 ]
