@@ -64,8 +64,8 @@ class UsersService:
         return user
 
     async def ensure_user(self, user_id: str, name: str | None = None) -> User:
-        """Alias for backward compatibility."""
-        return await self.get_or_create_user(user_id, name)
+        """Thin wrapper around :meth:`get_or_create_user` for backwards compatibility."""
+        return await self.get_or_create_user(user_id, name=name)
 
     async def save_message(self, user_id: str, message: Message) -> MessageModel:
         """
