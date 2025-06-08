@@ -32,9 +32,9 @@ async_session_factory = None
 # --- Инициализация engine и фабрики (как в ответе #18) ---
 # (Этот блок должен быть здесь и работать корректно)
 if settings.ENVIRONMENT == "test":
-    log.info("Using SYNC SQLite database (aiosqlite) for tests.")
-    engine = create_engine(
-        "sqlite+aiosqlite:///:memory:", connect_args={"check_same_thread": False}, echo=False, future=True
+    log.info("Using ASYNC SQLite database for tests.")
+    engine = create_async_engine(
+        "sqlite+aiosqlite:///:memory:", echo=False, future=True
     )
     async_session_factory = async_sessionmaker(
         bind=engine, class_=AsyncSession, expire_on_commit=False
@@ -118,8 +118,28 @@ async def async_session_context() -> AsyncGenerator[AsyncSession, None]:
         await session.close()
 
 
+async def create_db_and_tables() -> None:
+    """Create all tables using the configured engine."""
+    from . import models  # noqa: F401
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+
+async def drop_db_and_tables() -> None:
+    """Drop all tables from the configured engine."""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+
 # --- Экспорты ---
 __all__ = [
-    "Base", "engine", "async_session_factory", "AsyncSession",
-    "get_async_db_session", "async_session_context",
+    "Base",
+    "engine",
+    "async_session_factory",
+    "AsyncSession",
+    "get_async_db_session",
+    "async_session_context",
+    "create_db_and_tables",
+    "drop_db_and_tables",
 ]

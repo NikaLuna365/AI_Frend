@@ -7,20 +7,14 @@ from app.api.v1.health import router as health_router
 from app.api.v1.achievements_api import router as achievements_router
 from app.config import settings
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(name)s - %(module)s:%(lineno)d - %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
-)
-log = logging.getLogger(__name__)
-
-description = "AI-Friend API helps you manage your conversations and schedule."
-
-tags_metadata = [
-    {"name": "Authentication & Testing", "description": "User authentication and token issuance."},
-    {"name": "chat", "description": "Endpoints for interacting with the AI chat."},
-    {"name": "Achievements", "description": "Operations related to user achievements."},
-    {"name": "Health", "description": "API health checks."},
+# Configure basic logging
+logging.basicConfig(level=logging.INFO)
+description = """...""" # Оставляем как есть
+tags_metadata = [ # Добавляем тег для ачивок
+    {"name": "Authentication & Testing", "description": "..."},
+    {"name": "chat", "description": "..."},
+    {"name": "Achievements", "description": "Operations related to user achievements."}, # <--- НОВЫЙ ТЕГ
+    {"name": "Health", "description": "..."},
 ]
 
 app = FastAPI(

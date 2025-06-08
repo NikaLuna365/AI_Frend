@@ -33,6 +33,7 @@ SQLAlchemy==2.0.40
 alembic==1.15.2
 psycopg2-binary==2.9.10
 asyncpg==0.29.0
+aiosqlite==0.20.0
 
 # ───────────────────────────────────────────────────────
 # Celery + Redis
