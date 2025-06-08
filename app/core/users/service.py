@@ -63,6 +63,10 @@ class UsersService:
             log.debug("Found existing user: %r", user)
         return user
 
+    async def ensure_user(self, user_id: str, name: str | None = None) -> User:
+        """Alias for backward compatibility."""
+        return await self.get_or_create_user(user_id, name)
+
     async def save_message(self, user_id: str, message: Message) -> MessageModel:
         """
         Сохраняет новое сообщение в истории диалога пользователя.
@@ -107,13 +111,21 @@ class UsersService:
         stmt = (
             select(MessageModel)
             .where(MessageModel.user_id == user_id)
-            .order_by(desc(MessageModel.created_at))
+            .order_by(MessageModel.created_at.asc(), MessageModel.id.asc())
             .limit(limit)
         )
         result = await self.db.scalars(stmt)
         raw_messages = result.all()
         messages: List[Message] = [
-            Message(role=m.role, content=m.content) for m in reversed(raw_messages)
+            Message(role=m.role, content=m.content) for m in raw_messages
         ]
         log.debug("Found %d recent messages for user %s", len(messages), user_id)
         return messages
+
+    async def get_user_message_count(self, user_id: str) -> int:
+        """Возвращает количество сообщений пользователя с ролью ``user``."""
+        stmt = select(func.count()).select_from(MessageModel).where(
+            MessageModel.user_id == user_id, MessageModel.role == "user"
+        )
+        result = await self.db.execute(stmt)
+        return int(result.scalar_one())

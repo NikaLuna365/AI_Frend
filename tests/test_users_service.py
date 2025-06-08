@@ -1,5 +1,6 @@
 # tests/test_users_service.py (Пример)
 import pytest
+import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 # Предполагается, что эти импорты работают после настройки PYTHONPATH в pytest.ini
@@ -9,7 +10,7 @@ from app.core.llm.message import Message
 from app.db.base import async_session_context, create_db_and_tables, drop_db_and_tables
 
 # Фикстура для настройки БД перед тестами модуля/сессии
-@pytest.fixture(scope="function", autouse=True) # function scope для изоляции тестов
+@pytest_asyncio.fixture(scope="function", autouse=True)  # function scope
 async def setup_db():
     # Создаем таблицы перед запуском тестов в модуле
     await create_db_and_tables()
@@ -18,7 +19,7 @@ async def setup_db():
     await drop_db_and_tables()
 
 # Асинхронная фикстура для предоставления сессии
-@pytest.fixture
+@pytest_asyncio.fixture
 async def db_session() -> AsyncSession:
     async with async_session_context() as session:
         yield session
