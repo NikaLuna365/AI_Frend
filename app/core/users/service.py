@@ -63,6 +63,10 @@ class UsersService:
             log.debug("Found existing user: %r", user)
         return user
 
+    async def ensure_user(self, user_id: str, name: str | None = None) -> User:
+        """Thin wrapper around :meth:`get_or_create_user` for backwards compatibility."""
+        return await self.get_or_create_user(user_id, name=name)
+
     async def save_message(self, user_id: str, message: Message) -> MessageModel:
         """
         Сохраняет новое сообщение в истории диалога пользователя.
