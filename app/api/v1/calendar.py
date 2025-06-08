@@ -17,7 +17,7 @@ class EventOut(BaseModel):
 
 
 @router.get("/{user_id}", response_model=List[EventOut])
-def get_calendar(user_id: str):
+async def get_calendar(user_id: str):
     prov = get_calendar_provider()
-    events = prov.all_events(user_id)
+    events = await prov.list_events(user_id)
     return [EventOut.model_validate(e) for e in events]
