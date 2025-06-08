@@ -118,18 +118,23 @@ async def async_session_context() -> AsyncGenerator[AsyncSession, None]:
         await session.close()
 
 
+# --- Helpers for tests -------------------------------------------------
 async def create_db_and_tables() -> None:
-    """Create all tables using the configured engine."""
-    from . import models  # noqa: F401
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    """Create all tables defined by ``Base``."""
+    if settings.ENVIRONMENT == "test":
+        Base.metadata.create_all(bind=engine)
+    else:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
 
 async def drop_db_and_tables() -> None:
-    """Drop all tables from the configured engine."""
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+    """Drop all tables defined by ``Base``."""
+    if settings.ENVIRONMENT == "test":
+        Base.metadata.drop_all(bind=engine)
+    else:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
 
 
 # --- Экспорты ---
