@@ -32,9 +32,7 @@ services:
         echo 'Migrate: Waiting for DB...' &&
         until pg_isready -h db -U ai_user -d ai_drug -q; do sleep 1; done &&
         echo 'Migrate: DB ready!' &&
-        echo 'Migrate: Autogenerating (if needed)...' &&
-        alembic -c /app/alembic.ini revision --autogenerate -m 'auto-generated on startup' &&
-        echo 'Migrate: Applying migrations...' &&
+        echo 'Migrate: Applying migrations (upgrade head)...' &&
         alembic -c /app/alembic.ini upgrade head &&
         echo 'Migrate: Finished.'
       "
