@@ -17,11 +17,16 @@ class FakeTTSClient:
 
 @pytest.fixture(autouse=True)
 def patch_speech(monkeypatch):
-    import google.cloud.speech_v1 as speech
-    import google.cloud.texttospeech_v1 as tts
-    monkeypatch.setattr(speech, 'SpeechClient', lambda: FakeSpeechClient())
-    monkeypatch.setattr(tts, 'TextToSpeechClient', lambda: FakeTTSClient())
+    import types, sys
+    speech = types.ModuleType("speech_v1")
+    tts = types.ModuleType("texttospeech_v1")
+    speech.SpeechClient = lambda: FakeSpeechClient()
+    tts.TextToSpeechClient = lambda: FakeTTSClient()
+    sys.modules['google.cloud.speech_v1'] = speech
+    sys.modules['google.cloud.texttospeech_v1'] = tts
     yield
+    sys.modules.pop('google.cloud.speech_v1', None)
+    sys.modules.pop('google.cloud.texttospeech_v1', None)
 
 def test_chat_audio_endpoint():
     # передаём пустой WAV-заглушку

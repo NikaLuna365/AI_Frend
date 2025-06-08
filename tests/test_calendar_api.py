@@ -14,14 +14,19 @@ def setup_user_and_events(tmp_path, monkeypatch):
         start=datetime.utcnow() + timedelta(days=1),
         end=None
     )
-    # Мокаем CalendarProvider.list_events
+    # Mock CalendarProvider
     from app.core.calendar.base import get_calendar_provider
     class FakeProv:
-        def list_events(self, user_id, from_dt, to_dt):
-            return [fake_event] if user_id == 'u1' else []
+        def all_events(self, user_id):
+            event = fake_event.model_dump()
+            event["start"] = event["start"].isoformat()
+            if event["end"] is not None:
+                event["end"] = event["end"].isoformat()
+            return [event] if user_id == 'u1' else []
         def add_event(self, *args, **kwargs):
             pass
-    monkeypatch.setattr(get_calendar_provider.__module__, 'get_calendar_provider', lambda: FakeProv())
+    import app.api.v1.calendar as calendar_module
+    monkeypatch.setattr(calendar_module, 'get_calendar_provider', lambda name=None: FakeProv())
     yield
 
 def test_get_calendar_returns_events():
