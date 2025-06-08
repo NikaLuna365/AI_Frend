@@ -2,6 +2,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI, status
+
 from app.api.v1.auth import router as auth_router
 from app.api.v1.chat import router as chat_router
 from app.api.v1.health import router as health_router
@@ -24,7 +25,7 @@ tags_metadata = [ # Добавляем тег для ачивок
 app = FastAPI(
     title="AI-Friend API",
     description=description,
-    version="0.2.1",
+    version="0.2.3",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_tags=tags_metadata,
