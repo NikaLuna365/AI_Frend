@@ -1,6 +1,8 @@
 from __future__ import annotations
 import logging
 
+from fastapi import FastAPI, status
+
 from app.api.v1.auth import router as auth_router
 from app.api.v1.chat import router as chat_router
 from app.api.v1.health import router as health_router
@@ -9,6 +11,7 @@ from app.config import settings
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 description = """...""" # Оставляем как есть
 tags_metadata = [ # Добавляем тег для ачивок
     {"name": "Authentication & Testing", "description": "..."},
