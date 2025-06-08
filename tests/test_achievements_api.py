@@ -1,4 +1,5 @@
 import pytest
+import pytest_asyncio
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -10,7 +11,7 @@ from app.core.auth.security import get_current_user, oauth2_scheme
 
 client = TestClient(app)
 
-@pytest.fixture(scope="function", autouse=True)
+@pytest_asyncio.fixture(scope="function", autouse=True)
 async def setup_db():
     await create_db_and_tables()
     async with async_session_context() as session:
@@ -36,8 +37,12 @@ def test_achievements_empty():
 @pytest.mark.asyncio
 async def test_achievements_after_message(monkeypatch):
     from app.core.llm.client import LLMClient
-    monkeypatch.setattr(LLMClient, "extract_events", lambda self, txt: [None])
-    monkeypatch.setattr(LLMClient, "generate", lambda self, prompt, ctx: "ok")
+    async def fake_extract(self, txt):
+        return [None]
+    async def fake_generate(self, prompt, ctx):
+        return "ok"
+    monkeypatch.setattr(LLMClient, "extract_events", fake_extract)
+    monkeypatch.setattr(LLMClient, "generate", fake_generate)
 
     chat_res = client.post("/v1/chat/", json={"message_text": "hi"})
     assert chat_res.status_code == 200

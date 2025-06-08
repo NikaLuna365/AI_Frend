@@ -76,23 +76,6 @@ async def chat_endpoint(
     # -----------------------------------------
 
     try:
-        # 1. Получить историю сообщений (и количество для триггера "первое сообщение")
-        log.debug("[API /chat] Getting history for user '%s'", user_id)
-        # Если get_recent_messages не возвращает общее количество, нужно будет добавить отдельный запрос
-        # или модифицировать UsersService. Пока предположим, что мы можем его получить.
-        # Для простоты MVP, давайте передадим user_message_count=1 для первого сообщения
-        # и >1 для последующих. Это можно определить по истории.
-        history: List[Message] = await user_service.get_recent_messages(user_id, limit=1) # Получаем только последнее (или 0)
-        user_message_count = 1 # Предполагаем, что это новое сообщение
-        if history: # Если история не пуста, значит, это не первое сообщение
-             # Для более точного подсчета, UsersService должен бы возвращать count
-             # или здесь нужно загрузить всю историю и посчитать.
-             # Для MVP триггера "первое сообщение", можно просто проверить, есть ли уже сообщения.
-             # Если мы сохраним это сообщение ДО вызова ачивок, то user_message_count будет >= 1
-             # Если ПОСЛЕ, то для первого сообщения count будет 0.
-             # Давайте сначала сохраним, потом вызовем ачивки.
-             # Тогда user_message_count нужно будет получить запросом ПОСЛЕ сохранения.
-             pass # Логику подсчета user_message_count уточним ниже
 
         # 2. Вызвать LLM
         # Передаем полную историю для LLM
@@ -101,9 +84,18 @@ async def chat_endpoint(
         ai_reply_text = await llm.generate(payload.message_text, full_history)
         log.info("[API /chat] LLM reply for user '%s': '%.50s...'", user_id, ai_reply_text)
 
-        # 3. Извлечь события (Пропускаем для MVP)
-        detected_raw_events: List[Event] = []
+        # 3. Извлечь события из ответа LLM
+        detected_raw_events: List[Event] = await llm.extract_events(ai_reply_text)
         processed_events_out: List[EventOut] = []
+        for e in detected_raw_events:
+            if e:
+                processed_events_out.append(
+                    EventOut(
+                        title=e["title"],
+                        start=e["start"].isoformat(),
+                        end=e["end"].isoformat() if e.get("end") else None,
+                    )
+                )
 
         # 4. Добавить события в календарь (Пропускаем для MVP)
 
@@ -113,28 +105,14 @@ async def chat_endpoint(
         await user_service.save_message(user_id, Message(role="assistant", content=ai_reply_text))
         log.debug("[API /chat] Messages saved for user '%s'", user_id)
 
-        # --- ПОЛУЧАЕМ АКТУАЛЬНОЕ КОЛИЧЕСТВО СООБЩЕНИЙ ПОЛЬЗОВАТЕЛЯ ПОСЛЕ СОХРАНЕНИЯ ---
-        # Это нужно для триггера "первое сообщение"
-        # TODO: UsersService должен иметь метод get_user_message_count(user_id)
-        # Временное решение: если до этого история была пуста, значит это первое (примерно)
-        # Более надежно: добавить счетчик в модель User или специальный запрос.
-        # Для MVP: если `full_history` была пуста до добавления текущего сообщения, это "первое".
-        # Так как мы уже сохранили, `full_history` будет содержать как минимум 2 сообщения (user+AI)
-        # для первого реального взаимодействия.
-        # Правильнее всего иметь отдельный счетчик или флаг "first_message_sent" в User.
-        # Пока сделаем упрощенно: если до этого вызов get_recent_messages(limit=1) вернул 0.
-        is_first_ever_message_pair = not history # Если история (до текущего запроса) была пуста
-
-        # 6. Проверить и выдать достижения
-        log.debug("[API /chat] Checking achievements for user '%s'", user_id)
-        # Передаем user_message_count. Если это первое сообщение, count = 1.
-        # Для MVP, если is_first_ever_message_pair, то это считается как 1-е сообщение.
-        message_count_for_trigger = 1 if is_first_ever_message_pair else 2 # или больше
+        # 6. Получить актуальное число пользовательских сообщений и проверить ачивки
+        user_message_count = await user_service.get_user_message_count(user_id)
+        log.debug("[API /chat] Checking achievements for user '%s' with count %d", user_id, user_message_count)
 
         unlocked_codes: List[str] = await ach_service.check_and_award(
             user_id=user_id,
-            message_text=payload.message_text, # Передаем текст пользователя для анализа
-            user_message_count=message_count_for_trigger
+            message_text=payload.message_text,
+            user_message_count=user_message_count,
         )
         log.debug("[API /chat] Achievement check completed, tasks dispatched for: %s", unlocked_codes)
         # -----------------------------------------------------------------------------------
