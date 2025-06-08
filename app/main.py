@@ -1,14 +1,18 @@
 from __future__ import annotations
 import logging
 
+from fastapi import FastAPI, status
+
 from app.api.v1.auth import router as auth_router
 from app.api.v1.chat import router as chat_router
 from app.api.v1.health import router as health_router
+from app.api.v1.calendar import router as calendar_router
 from app.api.v1.achievements_api import router as achievements_router
 from app.config import settings
 
 # Configure basic logging
 logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 description = """...""" # Оставляем как есть
 tags_metadata = [ # Добавляем тег для ачивок
     {"name": "Authentication & Testing", "description": "..."},
@@ -29,6 +33,7 @@ app = FastAPI(
 app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(health_router)
+app.include_router(calendar_router)
 app.include_router(achievements_router)
 
 log.info("\U0001F331 FastAPI application configured. Environment: %s", settings.ENVIRONMENT)
