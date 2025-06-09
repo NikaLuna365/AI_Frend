@@ -11,8 +11,16 @@ from app.api.v1.achievements_api import router as achievements_router
 from app.api.v1.audio import router as audio_router
 from app.config import settings
 
-# Configure basic logging
-logging.basicConfig(level=logging.INFO)
+# Configure basic logging. Python 3.8+ requires keyword args for ``basicConfig``
+# to avoid ``TypeError: basicConfig() takes 0 positional arguments``. The call
+# below also sets a richer format and forces reconfiguration in case another
+# logger (like Uvicorn) already configured the root logger.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(name)s - %(module)s:%(lineno)d - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    force=True,
+)
 log = logging.getLogger(__name__)
 description = """...""" # Оставляем как есть
 tags_metadata = [ # Добавляем тег для ачивок
