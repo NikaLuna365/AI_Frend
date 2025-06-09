@@ -144,15 +144,20 @@ class GeminiLLMProvider(BaseLLMProvider):
         current_message = cast(ContentDict, {'role': 'user', 'parts': [PartDict(text=prompt)]})
         contents_for_api = history_prepared + [current_message]
 
-        active_system_instruction = system_prompt_override or self.system_prompt_text
-
         try:
-            log.debug(f"Gemini generate: Calling generate_content_async. Num content parts: {len(contents_for_api)}. System instruction used: {'YES' if active_system_instruction else 'NO'}")
+            # google-generativeai>=0.4 does not accept ``system_instruction`` in
+            # ``generate_content_async``. The instruction is passed when the
+            # ``GenerativeModel`` is instantiated in ``__init__``.  The log below
+            # still notes whether a custom prompt override was requested.
+            log.debug(
+                "Gemini generate: Calling generate_content_async. Num content parts: %d. System instruction override: %s",
+                len(contents_for_api),
+                'YES' if system_prompt_override else 'NO',
+            )
             response: GenerateContentResponse = await self.model.generate_content_async(
                 contents=contents_for_api,
                 generation_config=self.generation_config,
                 safety_settings=self.safety_settings,
-                system_instruction=active_system_instruction # Передаем здесь, если конструктор модели не смог
             )
             log.debug(f"Gemini generate: API call completed. Response object received.")
 
