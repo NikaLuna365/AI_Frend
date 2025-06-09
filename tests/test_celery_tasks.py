@@ -3,7 +3,7 @@ from app.workers.tasks import generate_achievement_task, celery_app
 from celery import states
 import asyncio
 
-@ pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True)
 def celery_eager(monkeypatch):
     celery_app.conf.task_always_eager = True
     yield

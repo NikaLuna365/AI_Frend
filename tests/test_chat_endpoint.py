@@ -11,7 +11,7 @@ from app.core.auth.security import get_current_user, oauth2_scheme
 
 client = TestClient(app)
 
-@ pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True)
 def patch_dependencies(monkeypatch):
     # Мокаем LLMClient.generate и extract_events
     async def fake_generate(self, prompt, ctx):
