@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = Field("stub", env="LLM_PROVIDER")
     GEMINI_API_KEY: Optional[str] = Field(None, env="GEMINI_API_KEY")
     CALENDAR_PROVIDER: str = Field("noop", env="CALENDAR_PROVIDER")
+    VERTEX_AI_PROJECT: Optional[str] = Field(None, env="VERTEX_AI_PROJECT")
+    VERTEX_AI_LOCATION: Optional[str] = Field(None, env="VERTEX_AI_LOCATION")
+    GCS_BUCKET_NAME: Optional[str] = Field(None, env="GCS_BUCKET_NAME")
+    GOOGLE_CALENDAR_CREDENTIALS_JSON: Optional[str] = Field(
+        None, env="GOOGLE_CALENDAR_CREDENTIALS_JSON"
+    )
     # GOOGLE_CLIENT_ID: Optional[str] = Field(None, env="GOOGLE_CLIENT_ID") # Закомментировано для MVP
     # TOKENS_ENCRYPTION_KEY: Optional[str] = Field(None, env="TOKENS_ENCRYPTION_KEY") # Закомментировано для MVP
 
