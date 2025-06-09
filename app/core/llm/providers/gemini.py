@@ -68,6 +68,9 @@ class GeminiLLMProvider(BaseLLMProvider):
             candidate_count=1,
         )
         log.info(f"Attempting to initialize GeminiLLMProvider with chat model: {self.model_name}")
+
+        if settings.GEMINI_API_KEY:
+            genai.configure(api_key=settings.GEMINI_API_KEY)
         try:
             # Инициализация модели для чата (Gemini)
             self.model = genai.GenerativeModel(
