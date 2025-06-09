@@ -14,6 +14,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 log = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
+    """Application configuration loaded from environment variables.
+
+    Optional Google Cloud related settings are allowed to be unset:
+    ``VERTEX_AI_PROJECT`` and ``VERTEX_AI_LOCATION`` for Vertex AI,
+    ``GCS_BUCKET_NAME`` for Cloud Storage, and
+    ``GOOGLE_CALENDAR_CREDENTIALS_JSON`` for Calendar access.
+    """
     model_config = SettingsConfigDict(
         # env_file НЕ указан здесь
         case_sensitive=False,
