@@ -9,7 +9,6 @@ from app.api.v1.health import router as health_router
 from app.api.v1.calendar import router as calendar_router
 from app.api.v1.achievements_api import router as achievements_router
 from app.api.v1.audio import router as audio_router
-from app.api.v1.calendar import router as calendar_router
 from app.config import settings
 
 # Configure basic logging
@@ -38,7 +37,6 @@ app.include_router(health_router)
 app.include_router(calendar_router)
 app.include_router(achievements_router)
 app.include_router(audio_router)
-app.include_router(calendar_router)
 
 log.info("\U0001F331 FastAPI application configured. Environment: %s", settings.ENVIRONMENT)
 
